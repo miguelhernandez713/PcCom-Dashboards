@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PcDays 2026 — Control de Ventas</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --bg:#0e1117; --surface:#161b22; --surface2:#1c2230; --border:#2a3140;
+    --text:#e6edf3; --text-dim:#8b949e;
+    --accent:#f97316; --accent-dim:rgba(249,115,22,0.15);
+    --green:#22c55e; --green-dim:rgba(34,197,94,0.12);
+    --red:#ef4444; --red-dim:rgba(239,68,68,0.12);
+    --blue:#3b82f6;
+    --yellow:#eab308; --yellow-dim:rgba(234,179,8,0.12);
+    --radius:10px;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{font-family:'DM Sans',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;}
+
+  .header{display:flex;align-items:center;gap:14px;padding:20px 32px;border-bottom:1px solid var(--border);}
+  .logo{width:38px;height:38px;border-radius:8px;background:linear-gradient(135deg,var(--accent),#fb923c);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;color:#fff;flex-shrink:0;}
+  .header-titles{flex:1;}
+  .header h1{font-size:17px;font-weight:600;letter-spacing:-0.3px;}
+  .header h1 span{color:var(--accent);}
+  .header-meta{font-size:12px;color:var(--text-dim);margin-top:2px;}
+  .campaign-badge{background:var(--accent-dim);border:1px solid var(--accent);color:var(--accent);font-size:11px;font-weight:600;padding:3px 10px;border-radius:20px;letter-spacing:0.4px;white-space:nowrap;}
+
+  .main{padding:24px 32px;display:flex;flex-direction:column;gap:18px;}
+
+  .upload-bar{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px 20px;flex-wrap:wrap;}
+  .upload-bar .lbl{font-size:13px;font-weight:600;color:var(--text);flex-shrink:0;}
+  .upload-drop{flex:1;min-width:220px;border:1px dashed var(--border);border-radius:8px;padding:9px 16px;font-size:12px;color:var(--text-dim);text-align:center;cursor:pointer;transition:all 0.2s;}
+  .upload-drop:hover,.upload-drop.dragover{border-color:var(--accent);color:var(--accent);background:var(--accent-dim);}
+  .upload-loaded{font-size:12px;color:var(--green);font-weight:500;display:none;flex:1;}
+  .btn-sm{background:none;border:1px solid var(--border);color:var(--text-dim);font-size:11px;padding:5px 12px;border-radius:6px;cursor:pointer;font-family:'DM Sans',sans-serif;white-space:nowrap;transition:all 0.2s;}
+  .btn-sm:hover{border-color:var(--red);color:var(--red);}
+  .btn-export{background:var(--surface2);border:1px solid var(--border);color:var(--text-dim);padding:6px 14px;font-size:12px;border-radius:8px;cursor:pointer;font-family:'DM Sans',sans-serif;font-weight:500;transition:all 0.2s;white-space:nowrap;}
+  .btn-export:hover:not(:disabled){border-color:var(--accent);color:var(--accent);}
+  .btn-export:disabled{opacity:0.35;cursor:not-allowed;}
+
+  .kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;}
+  .kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 20px;}
+  .kpi-label{font-size:11px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.5px;font-weight:500;margin-bottom:6px;}
+  .kpi-value{font-size:26px;font-weight:700;letter-spacing:-0.5px;}
+  .kpi-sub{font-size:12px;color:var(--text-dim);margin-top:4px;}
+  .kpi-bar{height:4px;background:var(--border);border-radius:2px;margin-top:10px;overflow:hidden;}
+  .kpi-bar-fill{height:100%;border-radius:2px;transition:width 0.6s ease;}
+
+  .table-controls{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;}
+  .section-title{font-size:14px;font-weight:600;}
+  .filters{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
+  .filter-label{font-size:12px;color:var(--text-dim);font-weight:500;text-transform:uppercase;letter-spacing:0.5px;}
+  .toggle-group{display:flex;}
+  .toggle-btn{background:var(--surface2);border:1px solid var(--border);color:var(--text-dim);padding:6px 14px;font-size:12px;cursor:pointer;transition:all 0.15s;font-family:'DM Sans',sans-serif;font-weight:500;}
+  .toggle-btn:first-child{border-radius:8px 0 0 8px;}
+  .toggle-btn:last-child{border-radius:0 8px 8px 0;}
+  .toggle-btn:not(:first-child){margin-left:-1px;}
+  .toggle-btn:hover{border-color:var(--accent);color:var(--accent);}
+  .toggle-btn.active{background:var(--accent-dim);border-color:var(--accent);color:var(--accent);font-weight:600;}
+  .search-box{background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:6px 12px;border-radius:8px;font-size:12px;font-family:'DM Sans',sans-serif;width:200px;outline:none;transition:border-color 0.2s;}
+  .search-box::placeholder{color:var(--text-dim);}
+  .search-box:focus{border-color:var(--accent);}
+
+  .table-wrap{overflow-x:auto;border-radius:var(--radius);border:1px solid var(--border);}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  thead th{background:var(--surface2);padding:10px 14px;text-align:right;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-dim);border-bottom:2px solid var(--border);white-space:nowrap;cursor:pointer;user-select:none;transition:color 0.15s;}
+  thead th:hover{color:var(--accent);}
+  thead th:first-child,thead th:nth-child(2){text-align:left;}
+  thead th.sorted{color:var(--accent);}
+  tbody td{padding:9px 14px;text-align:right;border-bottom:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:12.5px;vertical-align:middle;}
+  tbody td:first-child{text-align:left;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--text-dim);white-space:nowrap;}
+  tbody td:nth-child(2){text-align:left;font-family:'DM Sans',sans-serif;font-size:12px;max-width:280px;}
+  tbody tr:hover td{background:var(--surface2);}
+  tbody tr:last-child td{border-bottom:none;}
+
+  .name-main{color:var(--text);font-weight:600;font-size:12.5px;}
+  .name-sub{color:var(--text-dim);font-size:12.5px;}
+
+  .progress-wrap{display:flex;align-items:center;gap:8px;justify-content:flex-end;}
+  .progress-track{width:64px;height:6px;background:var(--border);border-radius:3px;overflow:hidden;flex-shrink:0;}
+  .progress-fill{height:100%;border-radius:3px;transition:width 0.5s ease;}
+  .pct-text{font-family:'JetBrains Mono',monospace;font-size:11.5px;font-weight:600;min-width:34px;text-align:right;}
+
+  .chip{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:5px;font-size:11px;font-weight:600;font-family:'DM Sans',sans-serif;white-space:nowrap;}
+  .chip-ok{background:var(--green-dim);color:var(--green);}
+  .chip-low{background:var(--yellow-dim);color:var(--yellow);}
+  .chip-out{background:var(--red-dim);color:var(--red);}
+
+  .group-row td{background:var(--surface2) !important;color:var(--text-dim);font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.6px;padding:6px 14px;border-bottom:1px solid var(--border);font-family:'DM Sans',sans-serif !important;}
+  .total-row td{background:var(--surface2);border-top:2px solid var(--border);font-weight:700;font-size:13px;font-family:'JetBrains Mono',monospace !important;}
+  .total-row td:first-child,.total-row td:nth-child(2){font-family:'DM Sans',sans-serif !important;}
+  .dim{color:var(--text-dim);font-size:11px;font-family:'DM Sans',sans-serif;}
+
+  @media(max-width:1000px){.kpi-grid{grid-template-columns:repeat(2,1fr);}.main{padding:16px;}}
+
+  /* Modal */
+  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:1000;backdrop-filter:blur(4px);}
+  .modal-overlay.hidden{display:none;}
+  .modal{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:28px 32px;width:400px;max-width:90vw;}
+  .modal h3{font-size:16px;font-weight:600;margin-bottom:6px;}
+  .modal p{font-size:13px;color:var(--text-dim);margin-bottom:22px;}
+  .modal-btns{display:flex;flex-direction:column;gap:10px;}
+  .modal-btn{display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:10px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;transition:all 0.2s;font-family:'DM Sans',sans-serif;text-align:left;width:100%;}
+  .modal-btn:hover{border-color:var(--accent);background:var(--accent-dim);}
+  .modal-btn .icon{font-size:22px;flex-shrink:0;}
+  .modal-btn .btn-text{font-size:13px;font-weight:600;color:var(--text);}
+  .modal-btn .btn-sub{font-size:11px;color:var(--text-dim);margin-top:2px;}
+  .modal-cancel{margin-top:12px;text-align:center;font-size:12px;color:var(--text-dim);cursor:pointer;text-decoration:underline;text-underline-offset:2px;}
+  .modal-cancel:hover{color:var(--text);}
+  .modal-status{margin-top:14px;font-size:12px;text-align:center;min-height:18px;}
+</style>
+</head>
+<body>
+
+<div class="modal-overlay hidden" id="modalOverlay">
+  <div class="modal">
+    <h3>📤 Exportar informe</h3>
+    <p>¿Cómo quieres compartir el informe de PcDays?</p>
+    <div class="modal-btns">
+      <button class="modal-btn" onclick="doExportPNG()">
+        <span class="icon">🖼️</span>
+        <div><div class="btn-text">Descargar imagen PNG</div><div class="btn-sub">Guarda el informe como imagen para adjuntar</div></div>
+      </button>
+      <button class="modal-btn" onclick="doSendTeams()">
+        <span class="icon">💬</span>
+        <div><div class="btn-text">Enviar a Teams</div><div class="btn-sub">Publica el resumen directamente en el canal</div></div>
+      </button>
+    </div>
+    <div class="modal-status" id="modalStatus"></div>
+    <div class="modal-cancel" onclick="closeModal()">Cancelar</div>
+  </div>
+</div>
+
+<div class="header">
+  <div class="logo">PC</div>
+  <div class="header-titles">
+    <h1>PcCom Sobremesa · <span>PcDays 2026</span></h1>
+    <div class="header-meta">34 referencias · Campaña 28 Jun – 12 Jul 2026 · Ventas filtradas por referencias de campaña</div>
+  </div>
+  <div class="campaign-badge">28 Jun – 12 Jul 2026</div>
+</div>
+
+<div class="main">
+
+  <div class="upload-bar">
+    <div class="lbl">📊 Ventas</div>
+    <div class="upload-drop" id="drop">Arrastra el orders_details (.xlsx o .csv) · o haz clic para seleccionar</div>
+    <div class="upload-loaded" id="loadedLabel"></div>
+    <button class="btn-sm" id="btnClear" style="display:none" onclick="clearSales()">✕ Quitar</button>
+    <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" style="display:none">
+  </div>
+
+  <div class="kpi-grid">
+    <div class="kpi">
+      <div class="kpi-label">Referencias</div>
+      <div class="kpi-value" style="color:var(--accent)">34</div>
+      <div class="kpi-sub">artículos en campaña</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Unidades ofertadas</div>
+      <div class="kpi-value">4.165</div>
+      <div class="kpi-sub">stock máximo campaña</div>
+      <div class="kpi-bar"><div class="kpi-bar-fill" style="width:100%;background:var(--blue)"></div></div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Unidades vendidas</div>
+      <div class="kpi-value" id="kpiV" style="color:var(--green)">—</div>
+      <div class="kpi-sub" id="kpiVSub">carga ventas para ver</div>
+      <div class="kpi-bar"><div class="kpi-bar-fill" id="barV" style="width:0%;background:var(--green)"></div></div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Ofertas restantes</div>
+      <div class="kpi-value" id="kpiR" style="color:var(--yellow)">—</div>
+      <div class="kpi-sub" id="kpiRSub">ofertadas − vendidas</div>
+      <div class="kpi-bar"><div class="kpi-bar-fill" id="barR" style="width:100%;background:var(--yellow)"></div></div>
+    </div>
+  </div>
+
+  <div class="table-controls">
+    <div class="section-title">Detalle por referencia</div>
+    <div class="filters">
+      <span class="filter-label">Ver:</span>
+      <div class="toggle-group">
+        <button class="toggle-btn active" onclick="setFilter('all',this)">Todas</button>
+        <button class="toggle-btn" onclick="setFilter('low',this)">Pocas ofertas</button>
+        <button class="toggle-btn" onclick="setFilter('out',this)">Sin ofertas</button>
+      </div>
+      <input class="search-box" id="searchBox" type="text" placeholder="Buscar código o nombre…" oninput="render()">
+      <button class="btn-export" id="btnExport" onclick="openModal()" disabled>📤 Exportar informe</button>
+      <a class="btn-export" href="https://metabase.prod.pccomponentes.com/dashboard/12363-sales-data?brand=&category=&channel=&channel_locale=&condition=&country=&delivery=&enddate=&family=Sobremesa&father=&featurename=&groupfeature=&hasassembly=&market_share_category=&market_share_family=&orderid=&ownbrand=&paymentmethod=&productdimension=Family&productid=&rangofecha=2026-06-28~2026-07-12&seller=&shopname=&source=&startdate=&stocksource=&tab=8125-export-tables&temporary=month&userid=&usertype=&week=&year=2026" target="_blank" style="text-decoration:none">🔗 Descargar datos</a>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th onclick="sortBy('codigo')" id="th-codigo">Código</th>
+          <th onclick="sortBy('nombre')" id="th-nombre">Artículo</th>
+          <th onclick="sortBy('precio')" id="th-precio">Precio €</th>
+          <th onclick="sortBy('uds')" id="th-uds">Ofertadas</th>
+          <th onclick="sortBy('vendidas')" id="th-vendidas">Vendidas</th>
+          <th onclick="sortBy('restante')" id="th-restante">Ofertas rest.</th>
+          <th onclick="sortBy('pct')" id="th-pct">% Vendido</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+
+</div>
+
+<script>
+// ── DATOS FIJOS ───────────────────────────────────────────────────────────────
+// Nombre: línea modelo / especificaciones
+function N(linea, specs) { return {linea, specs}; }
+
+const CAMPAIGN = [
+  {codigo:'11034118', uds:200, precio:539,  fi:'28/06', hi:'18:00', nombre: N('PcCom Work', 'Intel Core i5-12400 / 16GB / 500GB SSD V4')},
+  {codigo:'11034129', uds:200, precio:589,  fi:'28/06', hi:'18:00', nombre: N('PcCom Work', 'Intel Core i5-12400 / 16GB / 500GB SSD V2 / Win 11 Home')},
+  {codigo:'11034135', uds:50,  precio:609,  fi:'28/06', hi:'18:00', nombre: N('PcCom Work', 'Intel Core i5-12400 / 16GB / 500GB SSD')},
+  {codigo:'11036069', uds:150, precio:669,  fi:'28/06', hi:'18:00', nombre: N('PcCom Work', 'AMD Ryzen 7 5700G / 32GB / 1TB SSD')},
+  {codigo:'11036075', uds:150, precio:719,  fi:'28/06', hi:'18:00', nombre: N('PcCom Work', 'AMD Ryzen 7 5700G / 32GB / 1TB SSD / Win 11 Home')},
+  {codigo:'11038019', uds:100, precio:799,  fi:'28/06', hi:'18:00', nombre: N('PcCom Lite', 'AMD Ryzen 5 5500 / 16GB / 1TB SSD / RTX 5060 V2')},
+  {codigo:'11038024', uds:100, precio:849,  fi:'28/06', hi:'18:00', nombre: N('PcCom Lite', 'AMD Ryzen 5 5500 / 16GB / 1TB SSD / RTX 5060 V2 / Win 11 Home')},
+  {codigo:'11050308', uds:100, precio:1129, fi:'28/06', hi:'18:00', nombre: N('PcCom Lite', 'Intel Core i5-12400F / 16GB / 1TB SSD / RTX 5060')},
+  {codigo:'11050312', uds:100, precio:1179, fi:'28/06', hi:'18:00', nombre: N('PcCom Lite', 'Intel Core i5-12400F / 16GB / 1TB SSD / RTX 5060 / Win 11 Home')},
+  {codigo:'11037033', uds:60,  precio:799,  fi:'29/06', hi:'00:00', nombre: N('PcCom Lite', 'Intel Core i5-12400F / 16GB / 1TB SSD / RTX 3050 Blanco V2')},
+  {codigo:'11037045', uds:60,  precio:849,  fi:'29/06', hi:'00:00', nombre: N('PcCom Lite', 'Intel Core i5-12400F / 16GB / 1TB SSD / RTX 3050 Blanco V2 / Win 11 Home')},
+  {codigo:'11038029', uds:50,  precio:1029, fi:'29/06', hi:'00:00', nombre: N('PcCom Ready', 'Intel Core i5-12400F / 32GB / 1TB SSD / RTX 5060 V3')},
+  {codigo:'11038033', uds:40,  precio:1079, fi:'29/06', hi:'00:00', nombre: N('PcCom Ready', 'Intel Core i5-12400F / 32GB / 1TB SSD / RTX 5060 V3 / Win 11 Home')},
+  {codigo:'11038043', uds:60,  precio:1029, fi:'29/06', hi:'00:00', nombre: N('PcCom Ready', 'Intel Core i5-12400F / 32GB / 1TB SSD / RTX 5060 V2 Blanco')},
+  {codigo:'11038046', uds:76,  precio:1079, fi:'29/06', hi:'00:00', nombre: N('PcCom Ready', 'Intel Core i5-12400F / 32GB / 1TB SSD / RTX 5060 V2 Blanco / Win 11 Home')},
+  {codigo:'11038106', uds:250, precio:1299, fi:'28/06', hi:'18:00', nombre: N('PcCom Ready', 'Intel Core i7-14700KF / 32GB / 2TB SSD / RTX 5060 V4')},
+  {codigo:'11038109', uds:250, precio:1349, fi:'28/06', hi:'18:00', nombre: N('PcCom Ready', 'Intel Core i7-14700KF / 32GB / 2TB SSD / RTX 5060 V4 / Win 11 Home')},
+  {codigo:'11038126', uds:100, precio:1299, fi:'28/06', hi:'18:00', nombre: N('PcCom Ready', 'Intel Core i7-14700KF / 32GB / 2TB SSD / RTX 5060 V2 Blanco')},
+  {codigo:'11038907', uds:100, precio:1349, fi:'28/06', hi:'18:00', nombre: N('PcCom Ready', 'Intel Core i7-14700KF / 32GB / 2TB SSD / RTX 5060 V2 Blanco / Win 11 Home')},
+  {codigo:'11038914', uds:200, precio:1549, fi:'28/06', hi:'18:00', nombre: N('PcCom Ready', 'Intel Core i7-14700KF / 32GB / 2TB SSD / RTX 5060 Ti 16GB V2')},
+  {codigo:'11038936', uds:200, precio:1599, fi:'28/06', hi:'18:00', nombre: N('PcCom Ready', 'Intel Core i7-14700KF / 32GB / 2TB SSD / RTX 5060 Ti 16GB V2 / Win 11 Home')},
+  {codigo:'11038997', uds:150, precio:1249, fi:'28/06', hi:'18:00', nombre: N('PcCom Ready', 'AMD Ryzen 7 5800X / 32GB / 1TB SSD / RTX 5060 V2')},
+  {codigo:'11038998', uds:350, precio:1299, fi:'28/06', hi:'18:00', nombre: N('PcCom Ready', 'AMD Ryzen 7 5800X / 32GB / 1TB SSD / RTX 5060 V2 / Win 11 Home')},
+  {codigo:'11039069', uds:150, precio:1249, fi:'28/06', hi:'18:00', nombre: N('PcCom Ready', 'AMD Ryzen 7 5800X / 32GB / 1TB SSD / RTX 5060 V2 Blanco')},
+  {codigo:'11039074', uds:150, precio:1299, fi:'28/06', hi:'18:00', nombre: N('PcCom Ready', 'AMD Ryzen 7 5800X / 32GB / 1TB SSD / RTX 5060 V2 Blanco / Win 11 Home')},
+  {codigo:'10879991', uds:60,  precio:1399, fi:'29/06', hi:'00:00', nombre: N('PcCom Ready V2', 'AMD Ryzen 7 5800X / 32GB / 1TB SSD / RTX 5060 Ti 16GB')},
+  {codigo:'10879988', uds:30,  precio:1449, fi:'29/06', hi:'00:00', nombre: N('PcCom Ready V2', 'AMD Ryzen 7 5800X / 32GB / 1TB SSD / RTX 5060 Ti 16GB / Win 11 Home')},
+  {codigo:'10881835', uds:27,  precio:1419, fi:'29/06', hi:'00:00', nombre: N('PcCom Ready V2', 'AMD Ryzen 7 5800X / 32GB / 1TB SSD / RTX 5060 Ti 16GB Blanco')},
+  {codigo:'10881828', uds:22,  precio:1469, fi:'29/06', hi:'00:00', nombre: N('PcCom Ready V2', 'AMD Ryzen 7 5800X / 32GB / 1TB SSD / RTX 5060 Ti 16GB Blanco / Win 11 Home')},
+  {codigo:'11097787', uds:150, precio:1579, fi:'28/06', hi:'18:00', nombre: N('PcCom Imperial', 'AMD Ryzen 7 5800XT / 32GB / 2TB SSD / RTX 5070')},
+  {codigo:'11097788', uds:200, precio:1629, fi:'28/06', hi:'18:00', nombre: N('PcCom Imperial', 'AMD Ryzen 7 5800XT / 32GB / 2TB SSD / RTX 5070 / Win 11 Home')},
+  {codigo:'11042205', uds:100, precio:2549, fi:'28/06', hi:'18:00', nombre: N('PcCom Imperial', 'AMD Ryzen 7 9800X3D / 32GB / 2TB SSD / RTX 5070 Ti V4')},
+  {codigo:'11042210', uds:100, precio:2599, fi:'28/06', hi:'18:00', nombre: N('PcCom Imperial', 'AMD Ryzen 7 9800X3D / 32GB / 2TB SSD / RTX 5070 Ti V2 / Win 11 Home')},
+  {codigo:'11015899', uds:80,  precio:3099, fi:'28/06', hi:'18:00', nombre: N('PcCom Ultimate', 'AMD Ryzen 7 9800X3D / 32GB / 2TB SSD / RTX 5080 / Win 11 Pro')},
+];
+
+// Set de códigos válidos para filtrar ventas
+const CAMPAIGN_CODES = new Set(CAMPAIGN.map(r => r.codigo));
+const TOTAL_OF = CAMPAIGN.reduce((s,r)=>s+r.uds, 0); // 4165
+
+// ── STATE ─────────────────────────────────────────────────────────────────────
+let salesData = {};
+let hasSales  = false;
+let filter    = 'all';
+let sortCol   = 'fi';
+let sortDir   = 1;
+
+// ── UPLOAD ────────────────────────────────────────────────────────────────────
+const drop      = document.getElementById('drop');
+const fileInput = document.getElementById('fileInput');
+
+drop.addEventListener('dragover', e=>{e.preventDefault();drop.classList.add('dragover');});
+drop.addEventListener('dragleave', ()=>drop.classList.remove('dragover'));
+drop.addEventListener('drop', e=>{e.preventDefault();drop.classList.remove('dragover');if(e.dataTransfer.files[0])loadFile(e.dataTransfer.files[0]);});
+drop.addEventListener('click', ()=>fileInput.click());
+fileInput.addEventListener('change', ()=>{if(fileInput.files[0])loadFile(fileInput.files[0]);});
+
+async function loadFile(file) {
+  try {
+    let rows;
+    if (/\.(xlsx|xls)$/i.test(file.name)) {
+      const ab = await new Promise((res,rej)=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.onerror=()=>rej(new Error('Error leyendo'));r.readAsArrayBuffer(file);});
+      const wb = XLSX.read(new Uint8Array(ab), {type:'array', cellDates:true, WTF:false});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      rows = XLSX.utils.sheet_to_json(ws, {defval:'', raw:false});
+    } else {
+      const text = await new Promise((res,rej)=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.onerror=()=>rej(new Error('Error leyendo'));r.readAsText(file,'UTF-8');});
+      rows = csvToObjects(text);
+    }
+    parseSales(rows, file.name);
+  } catch(e) { alert('Error: '+e.message); }
+}
+
+function csvToObjects(text) {
+  const lines = text.trim().split('\n');
+  const delim = lines[0].includes(';')?';':',';
+  const headers = splitLine(lines[0], delim);
+  return lines.slice(1).map(l=>{
+    const cells = splitLine(l, delim);
+    const obj={};
+    headers.forEach((h,i)=>{obj[h.trim()]=(cells[i]||'').trim().replace(/^"|"$/g,'');});
+    return obj;
+  }).filter(r=>Object.values(r).some(v=>v!==''));
+}
+
+function splitLine(line, delim) {
+  const r=[]; let cur=''; let inQ=false;
+  for(const ch of line){if(ch==='"'){inQ=!inQ;}else if(ch===delim&&!inQ){r.push(cur);cur='';}else{cur+=ch;}}
+  r.push(cur); return r;
+}
+
+function parseSales(rows, fname) {
+  salesData = {};
+  if (!rows.length) return;
+  const keys = Object.keys(rows[0]);
+  const codKey = keys.find(k=>k==='product_id')||keys.find(k=>k==='product_reference')||keys.find(k=>/codigo|articulo|sku/i.test(k));
+  const udsKey = keys.find(k=>k==='units')||keys.find(k=>/vendid|pedid|uds|qty|cantidad/i.test(k));
+  if (!codKey||!udsKey) { alert('Columnas no reconocidas.\nEncontradas: '+keys.slice(0,10).join(', ')); return; }
+
+  let totalFilasCampana = 0;
+  for (const row of rows) {
+    const cod = String(row[codKey]||'').trim();
+    const qty = parseInt(row[udsKey])||0;
+    // SOLO sumamos si el código pertenece a la campaña
+    if (cod && CAMPAIGN_CODES.has(cod)) {
+      salesData[cod] = (salesData[cod]||0) + qty;
+      totalFilasCampana++;
+    }
+  }
+
+  hasSales = true;
+  const totV = Object.values(salesData).reduce((s,v)=>s+v, 0);
+
+  drop.style.display='none';
+  document.getElementById('loadedLabel').style.display='block';
+  document.getElementById('loadedLabel').textContent = `✓ ${fname} · ${totV.toLocaleString('es-ES')} uds vendidas en campaña (${totalFilasCampana} líneas de ${rows.length} totales)`;
+  document.getElementById('btnClear').style.display='inline-block';
+  document.getElementById('btnExport').disabled = false;
+
+  updateKPIs(); render();
+}
+
+function clearSales() {
+  salesData={}; hasSales=false;
+  drop.style.display='';
+  document.getElementById('loadedLabel').style.display='none';
+  document.getElementById('btnClear').style.display='none';
+  document.getElementById('btnExport').disabled = true;
+  document.getElementById('fileInput').value='';
+  updateKPIs(); render();
+}
+
+// ── KPIs ──────────────────────────────────────────────────────────────────────
+function updateKPIs() {
+  const totV = hasSales ? CAMPAIGN.reduce((s,r)=>s+(salesData[r.codigo]||0), 0) : 0;
+  const rest  = TOTAL_OF - totV;
+  const pct   = TOTAL_OF>0 ? totV/TOTAL_OF : 0;
+  document.getElementById('kpiV').textContent    = hasSales ? totV.toLocaleString('es-ES') : '—';
+  document.getElementById('kpiVSub').textContent = hasSales ? (pct*100).toFixed(1)+'% de cobertura' : 'carga ventas para ver';
+  document.getElementById('kpiR').textContent    = hasSales ? rest.toLocaleString('es-ES') : '—';
+  document.getElementById('kpiRSub').textContent = hasSales ? (rest>0?rest.toLocaleString('es-ES')+' ofertas sin vender':'¡Todo vendido!') : 'ofertadas − vendidas';
+  document.getElementById('barV').style.width    = (pct*100)+'%';
+  document.getElementById('barR').style.width    = ((1-pct)*100)+'%';
+}
+
+// ── TABLE ─────────────────────────────────────────────────────────────────────
+function setFilter(f,btn){filter=f;document.querySelectorAll('.toggle-btn').forEach(b=>b.classList.remove('active'));btn.classList.add('active');render();}
+function sortBy(col){sortDir=sortCol===col?-sortDir:1;sortCol=col;document.querySelectorAll('thead th').forEach(th=>th.classList.remove('sorted'));const el=document.getElementById('th-'+col);if(el)el.classList.add('sorted');render();}
+
+function render() {
+  const search = (document.getElementById('searchBox').value||'').toLowerCase();
+
+  let rows = CAMPAIGN.map(r=>{
+    const vendidas = hasSales?(salesData[r.codigo]||0):0;
+    const restante = r.uds - vendidas;
+    const pct      = r.uds>0?vendidas/r.uds:0;
+    return {...r, vendidas, restante, pct};
+  });
+
+  if (filter==='low') rows=rows.filter(r=>r.pct>=0.5&&r.restante>0);
+  if (filter==='out') rows=rows.filter(r=>r.restante<=0);
+  if (search) rows=rows.filter(r=>r.codigo.includes(search)||r.nombre.linea.toLowerCase().includes(search)||r.nombre.specs.toLowerCase().includes(search));
+
+  rows.sort((a,b)=>{
+    let va=a[sortCol], vb=b[sortCol];
+    if(sortCol==='fi'){va=a.fi+a.hi;vb=b.fi+b.hi;}
+    if(sortCol==='nombre'){va=a.nombre.linea+a.nombre.specs;vb=b.nombre.linea+b.nombre.specs;}
+    if(typeof va==='string') return va.localeCompare(vb)*sortDir;
+    return (va-vb)*sortDir;
+  });
+
+  let html='', lastGroup=null, totOf=0, totV=0;
+
+  rows.forEach(r=>{
+    const grp=r.fi+r.hi;
+    if(grp!==lastGroup){
+      html+=`<tr class="group-row"><td colspan="7">📅 Activas desde el ${r.fi} a las ${r.hi==='00:00'?'00:00':r.hi} h</td></tr>`;
+      lastGroup=grp;
+    }
+    totOf+=r.uds; totV+=r.vendidas;
+    const pctW=Math.min(r.pct*100,100).toFixed(0);
+    let chipCls='chip-ok',chipTxt='✓ Disponible';
+    if(r.restante<=0){chipCls='chip-out';chipTxt='✕ Sin ofertas';}
+    else if(r.pct>=0.75){chipCls='chip-low';chipTxt='! Pocas ofertas';}
+    const fillColor = !hasSales ? 'var(--text-dim)' : r.vendidas===0 ? 'var(--red)' : r.restante<=0 ? 'var(--red)' : r.pct>=0.75 ? 'var(--yellow)' : 'var(--green)';
+    const vTxt=hasSales?r.vendidas.toLocaleString('es-ES'):'<span class="dim">—</span>';
+    const rTxt=hasSales?r.restante.toLocaleString('es-ES'):'<span class="dim">—</span>';
+    const pTxt=hasSales?pctW+'%':'—';
+
+    html+=`<tr>
+      <td>${r.codigo}</td>
+      <td><span class="name-main">${r.nombre.linea}</span> <span class="name-sub">${r.nombre.specs}</span></td>
+      <td>${r.precio.toLocaleString('es-ES')} €</td>
+      <td>${r.uds.toLocaleString('es-ES')}</td>
+      <td>${vTxt}</td>
+      <td>${rTxt}</td>
+      <td><div class="progress-wrap"><div class="progress-track"><div class="progress-fill" style="width:${hasSales?pctW:0}%;background:${fillColor}"></div></div><span class="pct-text" style="color:${fillColor}">${pTxt}</span></div></td>
+    </tr>`;
+  });
+
+  const totRest=totOf-totV;
+  html+=`<tr class="total-row">
+    <td>TOTAL</td>
+    <td style="font-size:12px">${rows.length} referencias</td>
+    <td></td>
+    <td>${totOf.toLocaleString('es-ES')}</td>
+    <td>${hasSales?totV.toLocaleString('es-ES'):'—'}</td>
+    <td>${hasSales?totRest.toLocaleString('es-ES'):'—'}</td>
+    <td style="text-align:right;color:var(--accent)">${hasSales?(totOf>0?(totV/totOf*100).toFixed(1)+'%':'—'):'—'}</td>
+  </tr>`;
+
+  document.getElementById('tbody').innerHTML = html;
+}
+
+// ── EXPORT PNG ────────────────────────────────────────────────────────────────
+function exportPNG() {
+  const rows = CAMPAIGN.map(r => {
+    const vendidas = salesData[r.codigo] || 0;
+    const restante = r.uds - vendidas;
+    const pct      = r.uds > 0 ? vendidas / r.uds : 0;
+    return {...r, vendidas, restante, pct};
+  }).sort((a,b) => b.pct - a.pct);
+
+  const totOf  = rows.reduce((s,r)=>s+r.uds, 0);
+  const totV   = rows.reduce((s,r)=>s+r.vendidas, 0);
+  const totR   = totOf - totV;
+  const totPct = (totV/totOf*100).toFixed(1);
+
+  const W       = 1100;
+  const ROW_H   = 34;
+  const HEAD_H  = 110;
+  const FOOT_H  = 50;
+  const H       = HEAD_H + ROW_H * (rows.length + 1) + FOOT_H;
+
+  const canvas  = document.createElement('canvas');
+  canvas.width  = W * 2;
+  canvas.height = H * 2;
+  const ctx     = canvas.getContext('2d');
+  ctx.scale(2, 2);
+
+  const C = { bg:'#0e1117', surface:'#161b22', surface2:'#1c2230', border:'#2a3140',
+              text:'#e6edf3', dim:'#8b949e', accent:'#f97316',
+              green:'#22c55e', red:'#ef4444', yellow:'#eab308' };
+
+  function rr(x,y,w,h,r){
+    ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+    ctx.lineTo(x+w,y+h-r);ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);ctx.lineTo(x+r,y+h);
+    ctx.quadraticCurveTo(x,y+h,x,y+h-r);ctx.lineTo(x,y+r);ctx.quadraticCurveTo(x,y,x+r,y);ctx.closePath();
+  }
+
+  // BG
+  ctx.fillStyle = C.bg; ctx.fillRect(0,0,W,H);
+
+  // Header band
+  ctx.fillStyle = C.surface; ctx.fillRect(0,0,W,HEAD_H);
+  ctx.fillStyle = C.border;  ctx.fillRect(0,HEAD_H-1,W,1);
+
+  // Logo
+  const g = ctx.createLinearGradient(20,18,58,56);
+  g.addColorStop(0,'#f97316'); g.addColorStop(1,'#fb923c');
+  ctx.fillStyle = g; rr(20,18,38,38,8); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.font = 'bold 14px sans-serif'; ctx.textAlign='center';
+  ctx.fillText('PC',39,42);
+
+  // Title
+  ctx.textAlign='left';
+  ctx.fillStyle=C.text; ctx.font='bold 16px sans-serif';
+  ctx.fillText('PcCom Sobremesa · ',68,38);
+  const tw=ctx.measureText('PcCom Sobremesa · ').width;
+  ctx.fillStyle=C.accent; ctx.fillText('PcDays 2026',68+tw,38);
+  ctx.fillStyle=C.dim; ctx.font='12px sans-serif';
+  ctx.fillText('Informe de ventas · Campaña 28 Jun – 12 Jul 2026 · Ordenado por % vendido',68,56);
+
+  // KPI boxes
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'numeric'})+
+                  ' '+now.toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'});
+  const kpis=[
+    {l:'OFERTADAS', v:'4.165',          c:C.text},
+    {l:'VENDIDAS',  v:totV.toLocaleString('es-ES'), c:C.green},
+    {l:'RESTANTES', v:totR.toLocaleString('es-ES'), c:C.yellow},
+    {l:'COBERTURA', v:totPct+'%',       c:parseFloat(totPct)>10?C.green:C.accent},
+  ];
+  const kW=128, kX0=W-kpis.length*(kW+8)-18;
+  kpis.forEach((k,i)=>{
+    const x=kX0+i*(kW+8);
+    ctx.fillStyle=C.surface2; rr(x,14,kW,80,8); ctx.fill();
+    ctx.fillStyle=C.dim; ctx.font='9px sans-serif'; ctx.textAlign='left';
+    ctx.fillText(k.l,x+10,30);
+    ctx.fillStyle=k.c; ctx.font='bold 21px sans-serif';
+    ctx.fillText(k.v,x+10,58);
+  });
+
+  // Timestamp
+  ctx.fillStyle=C.dim; ctx.font='10px sans-serif'; ctx.textAlign='right';
+  ctx.fillText('Generado '+dateStr, W-18, 102);
+
+  // Columns
+  const cols=[
+    {k:'rank',   l:'#',          w:36,  a:'center'},
+    {k:'codigo', l:'CÓDIGO',     w:92,  a:'left'},
+    {k:'nombre', l:'ARTÍCULO',   w:368, a:'left'},
+    {k:'precio', l:'PRECIO',     w:82,  a:'right'},
+    {k:'uds',    l:'OFERTADAS',  w:82,  a:'right'},
+    {k:'vend',   l:'VENDIDAS',   w:82,  a:'right'},
+    {k:'rest',   l:'RESTANTES',  w:82,  a:'right'},
+    {k:'pct',    l:'% VENDIDO',  w:94,  a:'right'},
+    {k:'bar',    l:'',           w:100, a:'left'},
+  ];
+  let cx=0; cols.forEach(c=>{c.x=cx+14;cx+=c.w;});
+
+  // Table header
+  const TY=HEAD_H;
+  ctx.fillStyle=C.surface2; ctx.fillRect(0,TY,W,ROW_H);
+  ctx.fillStyle=C.border;   ctx.fillRect(0,TY+ROW_H-1,W,1);
+  cols.forEach(c=>{
+    ctx.fillStyle=C.dim; ctx.font='bold 10px sans-serif';
+    ctx.textAlign=c.a==='right'?'right':c.a==='center'?'center':'left';
+    const tx=c.a==='right'?c.x+c.w-14:c.a==='center'?c.x+c.w/2-8:c.x;
+    ctx.fillText(c.l,tx,TY+21);
+  });
+
+  // Data rows
+  rows.forEach((r,idx)=>{
+    const ry=TY+ROW_H+idx*ROW_H;
+    if(idx%2===0){ctx.fillStyle=C.surface;ctx.fillRect(0,ry,W,ROW_H);}
+    ctx.fillStyle=C.border; ctx.fillRect(0,ry+ROW_H-1,W,1);
+
+    const pctColor=r.vendidas===0?C.red:r.pct>=0.75?C.yellow:C.green;
+    const pctW=Math.min(r.pct*100,100);
+    const cy=ry+22;
+
+    cols.forEach(c=>{
+      ctx.textAlign=c.a==='right'?'right':c.a==='center'?'center':'left';
+      const tx=c.a==='right'?c.x+c.w-14:c.a==='center'?c.x+c.w/2-8:c.x;
+      if(c.k==='rank'){
+        ctx.fillStyle=C.dim; ctx.font='11px monospace'; ctx.fillText(idx+1,tx,cy);
+      } else if(c.k==='codigo'){
+        ctx.fillStyle=C.dim; ctx.font='11px monospace'; ctx.fillText(r.codigo,tx,cy);
+      } else if(c.k==='nombre'){
+        ctx.fillStyle=C.text; ctx.font='bold 12px sans-serif'; ctx.fillText(r.nombre.linea,tx,cy);
+        const lw=ctx.measureText(r.nombre.linea).width;
+        ctx.fillStyle=C.dim; ctx.font='11px sans-serif';
+        let sp=r.nombre.specs;
+        while(sp.length>8 && ctx.measureText(' '+sp).width>c.w-lw-20) sp=sp.slice(0,-1);
+        if(sp!==r.nombre.specs) sp+='…';
+        ctx.fillText(' '+sp,tx+lw,cy);
+      } else if(c.k==='precio'){
+        ctx.fillStyle=C.text; ctx.font='11px monospace';
+        ctx.fillText(r.precio.toLocaleString('es-ES')+' €',tx,cy);
+      } else if(c.k==='uds'){
+        ctx.fillStyle=C.dim; ctx.font='11px monospace'; ctx.fillText(r.uds.toLocaleString('es-ES'),tx,cy);
+      } else if(c.k==='vend'){
+        ctx.fillStyle=r.vendidas>0?C.green:C.red; ctx.font='bold 11px monospace';
+        ctx.fillText(r.vendidas.toLocaleString('es-ES'),tx,cy);
+      } else if(c.k==='rest'){
+        ctx.fillStyle=C.text; ctx.font='11px monospace'; ctx.fillText(r.restante.toLocaleString('es-ES'),tx,cy);
+      } else if(c.k==='pct'){
+        ctx.fillStyle=pctColor; ctx.font='bold 12px monospace';
+        ctx.fillText((r.pct*100).toFixed(1)+'%',tx,cy);
+      } else if(c.k==='bar'){
+        const bx=c.x,by=ry+13,bw=86,bh=9;
+        ctx.fillStyle=C.border; rr(bx,by,bw,bh,4); ctx.fill();
+        if(pctW>0){ctx.fillStyle=pctColor; rr(bx,by,bw*(pctW/100),bh,4); ctx.fill();}
+      }
+    });
+  });
+
+  // Totals row
+  const totY=TY+ROW_H+rows.length*ROW_H;
+  ctx.fillStyle=C.surface2; ctx.fillRect(0,totY,W,ROW_H);
+  ctx.fillStyle=C.border;   ctx.fillRect(0,totY,W,2);
+  ctx.fillStyle=C.text; ctx.font='bold 12px sans-serif'; ctx.textAlign='left';
+  ctx.fillText('TOTAL · '+rows.length+' referencias', cols[1].x, totY+22);
+  [{k:'uds',v:totOf,c:C.text},{k:'vend',v:totV,c:C.green},{k:'rest',v:totR,c:C.text}].forEach(({k,v,c})=>{
+    const col=cols.find(x=>x.k===k);
+    ctx.fillStyle=c; ctx.font='bold 11px monospace'; ctx.textAlign='right';
+    ctx.fillText(v.toLocaleString('es-ES'),col.x+col.w-14,totY+22);
+  });
+  const pc=cols.find(x=>x.k==='pct');
+  ctx.fillStyle=C.accent; ctx.font='bold 12px monospace'; ctx.textAlign='right';
+  ctx.fillText(totPct+'%',pc.x+pc.w-14,totY+22);
+
+  // Footer
+  const fy=totY+ROW_H;
+  ctx.fillStyle=C.surface; ctx.fillRect(0,fy,W,FOOT_H);
+  ctx.fillStyle=C.border;  ctx.fillRect(0,fy,W,1);
+  ctx.fillStyle=C.dim; ctx.font='11px sans-serif'; ctx.textAlign='left';
+  ctx.fillText('PcComponentes · PcCom Sobremesa PcDays 2026 · Datos filtrados por referencias de campaña',18,fy+20);
+  ctx.textAlign='right';
+  ctx.fillText('Generado '+dateStr,W-18,fy+20);
+
+  // Download
+  const a=document.createElement('a');
+  a.download='informe_pcdays_'+now.toISOString().slice(0,10)+'.png';
+  a.href=canvas.toDataURL('image/png');
+  a.click();
+}
+
+// ── MODAL ─────────────────────────────────────────────────────────────────────
+const WEBHOOK_URL = 'https://default85d540b584ba4d1396122243bb7abc.14.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/a9cca49070274d5e9b05e6098d81a56e/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=OLKLp2viP2aOS_uDgvCGwJlxcmAovwRePXiRgYNXyEQ';
+
+function openModal() { document.getElementById('modalOverlay').classList.remove('hidden'); document.getElementById('modalStatus').textContent=''; }
+function closeModal() { document.getElementById('modalOverlay').classList.add('hidden'); }
+document.getElementById('modalOverlay').addEventListener('click', function(e){ if(e.target===this) closeModal(); });
+
+function doExportPNG() { closeModal(); exportPNG(); }
+
+async function doSendTeams() {
+  const status = document.getElementById('modalStatus');
+  status.style.color = 'var(--text-dim)';
+  status.textContent = '⏳ Enviando al canal de Teams…';
+
+  const totOf = CAMPAIGN.reduce((s,r)=>s+r.uds, 0);
+  const totV  = hasSales ? CAMPAIGN.reduce((s,r)=>s+(salesData[r.codigo]||0), 0) : 0;
+  const totR  = totOf - totV;
+  const pct   = totOf > 0 ? (totV/totOf*100).toFixed(1) : '0.0';
+  const now   = new Date();
+  const dateStr = now.toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'numeric'})+' '+now.toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'});
+
+  // Top 5 por % vendido
+  const top5 = CAMPAIGN.map(r=>({...r, vendidas:salesData[r.codigo]||0, pct:r.uds>0?(salesData[r.codigo]||0)/r.uds:0}))
+    .sort((a,b)=>b.pct-a.pct).slice(0,5);
+  const top5txt = top5.map((r,i)=>`${i+1}. ${r.nombre.linea} ${r.nombre.specs} — ${(r.pct*100).toFixed(1)}% (${r.vendidas}/${r.uds})`).join('\n');
+
+  const body = {
+    titulo: '📦 PcDays 2026 · Informe de ventas',
+    fecha: dateStr,
+    resumen: `✅ Vendidas: ${totV.toLocaleString('es-ES')} uds (${pct}%)\n📦 Ofertadas: ${totOf.toLocaleString('es-ES')} uds\n🟡 Ofertas restantes: ${totR.toLocaleString('es-ES')} uds`,
+    top5: `🏆 Top 5 referencias por % vendido:\n${top5txt}`
+  };
+
+  try {
+    const res = await fetch(WEBHOOK_URL, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+    if (res.ok || res.status === 202) {
+      status.style.color = 'var(--green)';
+      status.textContent = '✓ Enviado correctamente al canal de Teams';
+      setTimeout(closeModal, 2000);
+    } else {
+      throw new Error('HTTP ' + res.status);
+    }
+  } catch(e) {
+    status.style.color = 'var(--red)';
+    status.textContent = '✕ Error al enviar: ' + e.message;
+  }
+}
+
+updateKPIs(); render();
+</script>
+</body>
+</html>

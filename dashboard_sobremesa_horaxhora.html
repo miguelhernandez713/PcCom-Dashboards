@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sobremesa PcCom — Dashboard Ventas por Horas</title>
+<script>
+// Suppress SheetJS internal zip warnings ("Bad uncompressed size")
+(function(){
+  const _err = console.error;
+  console.error = function(){
+    if (arguments[0] && typeof arguments[0]==='string' && arguments[0].indexOf('Bad uncompressed size')!==-1) return;
+    _err.apply(console, arguments);
+  };
+})();
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0e1117;
+    --surface: #161b22;
+    --surface2: #1c2230;
+    --border: #2a3140;
+    --text: #e6edf3;
+    --text-dim: #8b949e;
+    --accent: #f97316;
+    --accent-dim: rgba(249,115,22,0.15);
+    --green: #22c55e;
+    --green-dim: rgba(34,197,94,0.12);
+    --red: #ef4444;
+    --red-dim: rgba(239,68,68,0.12);
+    --blue: #3b82f6;
+    --radius: 10px;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
+
+  .header {
+    padding:24px 32px; border-bottom:1px solid var(--border);
+    display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:16px;
+  }
+  .header-left { display:flex; align-items:center; gap:14px; }
+  .logo {
+    width:38px; height:38px; border-radius:8px;
+    background:linear-gradient(135deg,var(--accent),#fb923c);
+    display:flex; align-items:center; justify-content:center;
+    font-weight:700; font-size:16px; color:#fff;
+  }
+  .header h1 { font-size:18px; font-weight:600; letter-spacing:-0.3px; }
+  .header h1 span { color:var(--accent); }
+
+  .upload-zone {
+    border:2px dashed var(--border); border-radius:var(--radius);
+    padding:48px 32px; text-align:center; margin:32px;
+    transition:all 0.2s; cursor:pointer; position:relative;
+  }
+  .upload-zone:hover,.upload-zone.dragover { border-color:var(--accent); background:var(--accent-dim); }
+  .upload-zone input { position:absolute; inset:0; opacity:0; cursor:pointer; }
+  .upload-icon { font-size:40px; margin-bottom:12px; }
+  .upload-zone p { color:var(--text-dim); font-size:14px; margin-top:6px; }
+  .upload-zone .main-text { color:var(--text); font-size:16px; font-weight:500; }
+  .file-badge {
+    display:inline-flex; align-items:center; gap:6px;
+    background:var(--surface2); border:1px solid var(--border);
+    border-radius:6px; padding:6px 12px; font-size:13px; color:var(--accent);
+  }
+
+  .controls { display:flex; gap:12px; padding:0 32px 20px; flex-wrap:wrap; align-items:center; }
+  .control-group { display:flex; align-items:center; gap:8px; }
+  .control-group label { font-size:13px; color:var(--text-dim); font-weight:500; text-transform:uppercase; letter-spacing:0.5px; }
+  select,.toggle-btn {
+    background:var(--surface2); border:1px solid var(--border); color:var(--text);
+    padding:8px 14px; border-radius:8px; font-size:13px; font-family:'DM Sans',sans-serif;
+    cursor:pointer; transition:all 0.15s;
+  }
+  select:hover,.toggle-btn:hover { border-color:var(--accent); }
+  .toggle-btn.active { background:var(--accent-dim); border-color:var(--accent); color:var(--accent); font-weight:600; }
+  .toggle-group { display:flex; }
+  .toggle-group .toggle-btn { border-radius:0; margin-left:-1px; }
+  .toggle-group .toggle-btn:first-child { border-radius:8px 0 0 8px; margin-left:0; }
+  .toggle-group .toggle-btn:last-child { border-radius:0 8px 8px 0; }
+
+  .kpi-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; padding:0 32px 20px; }
+  .kpi { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:16px 20px; }
+  .kpi-label { font-size:12px; color:var(--text-dim); text-transform:uppercase; letter-spacing:0.5px; font-weight:500; margin-bottom:6px; }
+  .kpi-row-inner { display:flex; align-items:baseline; gap:10px; }
+  .kpi-value { font-size:26px; font-weight:700; letter-spacing:-0.5px; }
+  .kpi-delta { font-size:13px; font-weight:600; padding:2px 8px; border-radius:6px; }
+  .kpi-delta.pos { background:var(--green-dim); color:var(--green); }
+  .kpi-delta.neg { background:var(--red-dim); color:var(--red); }
+  .kpi-sub { font-size:12px; color:var(--text-dim); margin-top:4px; }
+
+  .table-wrap { padding:0 32px 32px; overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  thead th {
+    background:var(--surface2); padding:10px 14px; text-align:right;
+    font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:0.5px;
+    color:var(--text-dim); border-bottom:2px solid var(--border); position:sticky; top:0;
+  }
+  thead th:first-child { text-align:left; border-radius:var(--radius) 0 0 0; }
+  thead th:last-child { border-radius:0 var(--radius) 0 0; }
+  tbody td {
+    padding:9px 14px; text-align:right; border-bottom:1px solid var(--border);
+    font-family:'JetBrains Mono',monospace; font-size:12.5px;
+  }
+  tbody td:first-child { text-align:left; font-weight:500; color:var(--text-dim); }
+  tbody tr:hover { background:var(--surface2); }
+  tbody tr.row-peak td { background:var(--accent-dim); }
+  tbody tr.row-incomplete td { opacity:0.35; }
+  tbody tr.row-total { background:var(--surface2); border-top:2px solid var(--border); }
+  tbody tr.row-total td { font-weight:700; font-size:13px; }
+  .delta-cell { font-weight:600; }
+  .delta-pos { color:var(--green); }
+  .delta-neg { color:var(--red); }
+
+  .chart-section { padding:0 32px 24px; }
+  .chart-container {
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:var(--radius); padding:24px; position:relative;
+  }
+  .chart-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
+  .chart-title {
+    font-size:13px; font-weight:600; color:var(--dim, var(--text-dim));
+    text-transform:uppercase; letter-spacing:0.5px;
+  }
+  .trend-toggle { display:flex; align-items:center; gap:6px; cursor:pointer; user-select:none; }
+  .trend-toggle input { accent-color:var(--accent); cursor:pointer; width:14px; height:14px; }
+  .trend-toggle span { font-size:11px; color:var(--text-dim); font-weight:500; }
+  .chart-area { position:relative; }
+  .bar-chart { display:flex; align-items:flex-end; gap:3px; height:220px; }
+  .trend-svg {
+    position:absolute; top:0; left:0; width:100%; height:220px;
+    pointer-events:none; overflow:visible;
+  }
+  .bar-group { flex:1; display:flex; flex-direction:column; align-items:center; height:100%; justify-content:flex-end; }
+  .bar-pair { display:flex; gap:2px; align-items:flex-end; width:100%; justify-content:center; height:100%; }
+  .bar {
+    width:44%; border-radius:3px 3px 0 0; transition:height 0.4s ease; position:relative;
+  }
+  .bar:hover { filter:brightness(1.2); }
+  .bar-a { background:var(--blue); }
+  .bar-b { background:var(--accent); }
+  .bar-label { font-size:10px; color:var(--text-dim); margin-top:6px; font-family:'JetBrains Mono',monospace; }
+  .tooltip {
+    position:absolute; bottom:calc(100% + 6px); left:50%; transform:translateX(-50%);
+    background:#1e2530; border:1px solid var(--border); border-radius:6px;
+    padding:4px 8px; font-size:10px; font-family:'JetBrains Mono',monospace;
+    white-space:nowrap; pointer-events:none; opacity:0; transition:opacity 0.15s;
+    color:var(--text); z-index:10;
+  }
+  .bar:hover .tooltip { opacity:1; }
+
+  .legend { display:flex; gap:20px; padding:0 32px 16px; }
+  .legend-item { display:flex; align-items:center; gap:6px; font-size:12px; color:var(--text-dim); }
+  .legend-dot { width:10px; height:10px; border-radius:3px; }
+
+  .footer { padding:16px 32px; border-top:1px solid var(--border); font-size:11px; color:var(--text-dim); text-align:center; }
+  .reload-area { text-align:center; padding:12px 32px; }
+  .reload-hint {
+    font-size:12px; color:var(--text-dim); cursor:pointer;
+    text-decoration:underline; text-underline-offset:2px;
+  }
+  .reload-hint:hover { color:var(--accent); }
+  .hidden { display:none!important; }
+
+  @media(max-width:768px) {
+    .header,.kpi-row,.controls,.table-wrap,.chart-section,.legend { padding-left:16px; padding-right:16px; }
+    .upload-zone { margin:16px; }
+    .kpi-row { grid-template-columns:1fr 1fr; }
+  }
+
+  /* Modal */
+  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);display:flex;align-items:center;justify-content:center;z-index:1000;backdrop-filter:blur(4px);}
+  .modal-overlay.hidden{display:none;}
+  .modal{background:#161b22;border:1px solid #2a3140;border-radius:14px;padding:28px 32px;width:400px;max-width:90vw;}
+  .modal h3{font-size:16px;font-weight:600;margin-bottom:6px;color:#e6edf3;}
+  .modal p{font-size:13px;color:#8b949e;margin-bottom:22px;}
+  .modal-btns{display:flex;flex-direction:column;gap:10px;}
+  .modal-btn{display:flex;align-items:center;gap:12px;padding:14px 16px;border-radius:10px;border:1px solid #2a3140;background:#1c2230;cursor:pointer;transition:all 0.2s;font-family:'DM Sans',sans-serif;text-align:left;width:100%;}
+  .modal-btn:hover{border-color:#f97316;background:rgba(249,115,22,0.1);}
+  .modal-btn .icon{font-size:22px;flex-shrink:0;}
+  .modal-btn .btn-text{font-size:13px;font-weight:600;color:#e6edf3;}
+  .modal-btn .btn-sub{font-size:11px;color:#8b949e;margin-top:2px;}
+  .modal-cancel{margin-top:12px;text-align:center;font-size:12px;color:#8b949e;cursor:pointer;text-decoration:underline;text-underline-offset:2px;}
+  .modal-cancel:hover{color:#e6edf3;}
+  .modal-status{margin-top:14px;font-size:12px;text-align:center;min-height:18px;}
+</style>
+</head>
+<body>
+
+<div class="modal-overlay hidden" id="modalOverlay">
+  <div class="modal">
+    <h3>📤 Exportar informe</h3>
+    <p>¿Cómo quieres compartir el informe de ventas?</p>
+    <div class="modal-btns">
+      <button class="modal-btn" onclick="doExportPNG()">
+        <span class="icon">🖼️</span>
+        <div><div class="btn-text">Descargar imagen PNG</div><div class="btn-sub">Guarda el informe como imagen para adjuntar</div></div>
+      </button>
+      <button class="modal-btn" onclick="doSendTeams()">
+        <span class="icon">💬</span>
+        <div><div class="btn-text">Enviar a Teams</div><div class="btn-sub">Publica el resumen directamente en el canal</div></div>
+      </button>
+    </div>
+    <div class="modal-status" id="modalStatus"></div>
+    <div class="modal-cancel" onclick="closeModal()">Cancelar</div>
+  </div>
+</div>
+
+<div class="header">
+  <div class="header-left">
+    <div class="logo">Pc</div>
+    <h1>Sobremesa <span>Dashboard</span></h1>
+  </div>
+  <div id="fileInfo" class="file-badge hidden"></div>
+    <a href="https://metabase.prod.pccomponentes.com/dashboard/12363-sales-data?brand=&category=&channel=&channel_locale=&condition=&country=&delivery=&enddate=&family=Sobremesa&father=&featurename=&groupfeature=&hasassembly=&market_share_category=&market_share_family=&orderid=&ownbrand=&paymentmethod=&productdimension=Family&productid=&rangofecha=2026-06-28~2026-07-12&seller=&shopname=&source=&startdate=&stocksource=&tab=8125-export-tables&temporary=month&userid=&usertype=&week=&year=2026" target="_blank" style="display:inline-flex;align-items:center;gap:6px;background:#1c2230;border:1px solid #2a3140;color:#8b949e;padding:7px 14px;border-radius:8px;font-size:12px;font-weight:500;text-decoration:none;font-family:'DM Sans',sans-serif;" onmouseover="this.style.borderColor='#f97316';this.style.color='#f97316'" onmouseout="this.style.borderColor='#2a3140';this.style.color='#8b949e'">🔗 Descargar datos</a>
+</div>
+
+<div id="uploadArea" class="upload-zone">
+  <input type="file" id="fileInput" accept=".xlsx,.xls">
+  <div class="upload-icon">📊</div>
+  <div class="main-text">Arrastra aquí el Excel de pedidos o haz clic para seleccionarlo</div>
+  <p>orders_details_*.xlsx — Se detectan días, marcas y familias automáticamente</p>
+</div>
+
+<div id="dashboard" class="hidden">
+  <div class="controls">
+    <div class="control-group">
+      <label>Día A</label>
+      <select id="dayA"></select>
+    </div>
+    <div class="control-group">
+      <label>Día B</label>
+      <select id="dayB"></select>
+    </div>
+    <div class="control-group">
+      <label>País</label>
+      <div class="toggle-group" id="localeGroup">
+        <button class="toggle-btn active" onclick="setLocale('all',this)">Todos</button>
+      </div>
+    </div>
+    <div class="control-group">
+      <label>Marca</label>
+      <select id="brandSelect"></select>
+    </div>
+    <div class="control-group">
+      <label>Métrica</label>
+      <div class="toggle-group">
+        <button class="toggle-btn active" data-metric="both" onclick="setMetric('both',this)">Ambas</button>
+        <button class="toggle-btn" data-metric="units" onclick="setMetric('units',this)">Unidades</button>
+        <button class="toggle-btn" data-metric="gmv" onclick="setMetric('gmv',this)">GMV</button>
+      </div>
+    </div>
+    <button class="toggle-btn" onclick="openModal()" style="margin-left:auto">📤 Exportar informe</button>
+  </div>
+
+  <div class="kpi-row" id="kpiRow"></div>
+  <div class="legend" id="legendBar"></div>
+  <div class="chart-section">
+    <div class="chart-container">
+      <div class="chart-header">
+        <div class="chart-title" id="chartTitle">Unidades por hora</div>
+        <label class="trend-toggle">
+          <input type="checkbox" id="trendCheck" onchange="render()">
+          <span>Tendencia</span>
+        </label>
+      </div>
+      <div class="chart-area">
+        <div class="bar-chart" id="barChart"></div>
+        <svg class="trend-svg" id="trendSvg" xmlns="http://www.w3.org/2000/svg"></svg>
+      </div>
+    </div>
+  </div>
+  <div class="table-wrap">
+    <table id="mainTable">
+      <thead id="tableHead"></thead>
+      <tbody id="tableBody"></tbody>
+    </table>
+  </div>
+  <div class="reload-area">
+    <span class="reload-hint" onclick="document.getElementById('reloadInput').click()">📁 Cargar otro Excel</span>
+    <input type="file" id="reloadInput" accept=".xlsx,.xls" style="display:none" onchange="if(this.files[0])parseFile(this.files[0])">
+  </div>
+</div>
+
+<div class="footer">Dashboard Sobremesa PcComponentes — Arrastra un nuevo Excel para actualizar</div>
+
+<script>
+let DATA = [];
+let currentFilter = 'pccom';
+let currentMetric = 'both';
+let currentLocale = 'all';
+let currentBrand = 'PcCom';
+const $ = id => document.getElementById(id);
+
+function parseFile(file) {
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const wb = XLSX.read(e.target.result, { type:'array', cellDates:false });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws);
+
+      DATA = [];
+      for (const r of rows) {
+        if (r.family !== 'Sobremesa') continue;
+
+        let lt;
+        const raw = r.local_time;
+        if (typeof raw === 'number') {
+          // Excel serial → local date (no UTC shift)
+          // Whole days since Dec 30 1899
+          const totalDays = Math.floor(raw);
+          const fracDay = raw - totalDays;
+          // Build date from epoch
+          const base = new Date(1899, 11, 30 + totalDays);
+          const totalSecs = Math.round(fracDay * 86400);
+          const hh = Math.floor(totalSecs / 3600);
+          const mm = Math.floor((totalSecs % 3600) / 60);
+          const ss = totalSecs % 60;
+          lt = new Date(base.getFullYear(), base.getMonth(), base.getDate(), hh, mm, ss);
+        } else if (typeof raw === 'string') {
+          const p = raw.match(/(\d{4})-(\d{2})-(\d{2})[\sT]+(\d{2}):(\d{2}):(\d{2})/);
+          if (p) lt = new Date(+p[1], +p[2]-1, +p[3], +p[4], +p[5], +p[6]);
+          else lt = new Date(raw.replace(/-/g,'/'));
+        } else {
+          continue;
+        }
+
+        if (!lt || isNaN(lt.getTime())) continue;
+
+        const yyyy = lt.getFullYear();
+        const mon = String(lt.getMonth()+1).padStart(2,'0');
+        const dd = String(lt.getDate()).padStart(2,'0');
+
+        DATA.push({
+          brand: r.brand || '',
+          units: Number(r.units) || 0,
+          gmv: Number(r.gmv) || 0,
+          date: `${yyyy}-${mon}-${dd}`,
+          hour: lt.getHours(),
+          locale: r.channel_locale || r.country || 'N/A',
+        });
+      }
+
+      $('fileInfo').textContent = '📁 ' + file.name + ' — ' + DATA.length + ' registros Sobremesa';
+      $('fileInfo').classList.remove('hidden');
+      populateDays();
+      populateLocales();
+      populateBrands();
+      $('uploadArea').classList.add('hidden');
+      $('dashboard').classList.remove('hidden');
+      render();
+    } catch(err) {
+      alert('Error al leer el archivo: ' + err.message);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function populateDays() {
+  const days = [...new Set(DATA.map(r=>r.date))].sort();
+  const selA = $('dayA'), selB = $('dayB');
+  selA.innerHTML = ''; selB.innerHTML = '';
+  days.forEach(d => {
+    const l = formatDay(d);
+    selA.innerHTML += `<option value="${d}">${l}</option>`;
+    selB.innerHTML += `<option value="${d}">${l}</option>`;
+  });
+  if (days.length >= 2) { selA.value = days[days.length-2]; selB.value = days[days.length-1]; }
+  selA.onchange = render; selB.onchange = render;
+}
+
+function formatDay(iso) {
+  const [y,m,d] = iso.split('-');
+  const dt = new Date(+y, +m-1, +d, 12);
+  return ['Dom','Lun','Mar','Mié','Jue','Vie','Sáb'][dt.getDay()] + ' ' + d + '/' + m;
+}
+
+function setFilter(f,btn) {
+  currentFilter = f;
+  btn.parentElement.querySelectorAll('.toggle-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active'); render();
+}
+function setMetric(m,btn) {
+  currentMetric = m;
+  btn.parentElement.querySelectorAll('.toggle-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active'); render();
+}
+function setLocale(l,btn) {
+  currentLocale = l;
+  btn.parentElement.querySelectorAll('.toggle-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active'); render();
+}
+
+function populateLocales() {
+  const locales = [...new Set(DATA.map(r=>r.locale))].sort();
+  const grp = $('localeGroup');
+  grp.innerHTML = '<button class="toggle-btn active" onclick="setLocale(\'all\',this)">Todos</button>';
+  locales.forEach(l => {
+    grp.innerHTML += `<button class="toggle-btn" onclick="setLocale('${l}',this)">${l}</button>`;
+  });
+  currentLocale = 'all';
+}
+
+function populateBrands() {
+  const brands = [...new Set(DATA.map(r=>r.brand))].sort();
+  const sel = $('brandSelect');
+  sel.innerHTML = '<option value="all">Todas las marcas</option>';
+  brands.forEach(b => {
+    sel.innerHTML += `<option value="${b}"${b==='PcCom'?' selected':''}>${b}</option>`;
+  });
+  currentBrand = brands.includes('PcCom') ? 'PcCom' : 'all';
+  sel.value = currentBrand;
+  sel.onchange = function() { currentBrand = this.value; render(); };
+}
+
+function filterData(day) {
+  return DATA.filter(r => {
+    if (r.date !== day) return false;
+    if (currentBrand !== 'all' && r.brand !== currentBrand) return false;
+    if (currentLocale !== 'all' && r.locale !== currentLocale) return false;
+    return true;
+  });
+}
+
+function aggregate(rows) {
+  const bh = {};
+  rows.forEach(r => {
+    if (!bh[r.hour]) bh[r.hour] = {units:0,gmv:0};
+    bh[r.hour].units += r.units;
+    bh[r.hour].gmv += r.gmv;
+  });
+  return bh;
+}
+
+function findLastCompleteHour(hB) {
+  const hrs = Object.keys(hB).map(Number).sort((a,b)=>a-b);
+  if (!hrs.length) return -1;
+  for (let i=hrs.length-1; i>=0; i--) {
+    if (hrs.includes(hrs[i]+1)) return hrs[i];
+  }
+  return hrs.length >= 2 ? hrs[hrs.length-2] : hrs[0];
+}
+
+function fN(n) { return n.toLocaleString('es-ES',{maximumFractionDigits:0}); }
+function fE(n) { return n.toLocaleString('es-ES',{maximumFractionDigits:0})+'€'; }
+function fP(n) { return (n>=0?'+':'')+n.toFixed(1)+'%'; }
+
+function render() {
+  const dayA=$('dayA').value, dayB=$('dayB').value;
+  if (!dayA||!dayB) return;
+
+  const hA = aggregate(filterData(dayA));
+  const hB = aggregate(filterData(dayB));
+
+  const mxA = Object.keys(hA).length ? Math.max(...Object.keys(hA).map(Number)) : -1;
+  const mxB = Object.keys(hB).length ? Math.max(...Object.keys(hB).map(Number)) : -1;
+  const bInc = mxB < mxA;
+  const lastOK = bInc ? findLastCompleteHour(hB) : Math.max(mxA,mxB);
+
+  const lA = formatDay(dayA), lB = formatDay(dayB);
+  const fLabel = currentBrand === 'all' ? 'Toda Sobremesa' : currentBrand + ' Sobremesa';
+  const locLabel = currentLocale === 'all' ? 'Todos los países' : currentLocale;
+
+  // KPIs
+  let cUA=0,cUB=0,cGA=0,cGB=0;
+  for (let h=0;h<=lastOK;h++) {
+    cUA+=(hA[h]?.units||0); cUB+=(hB[h]?.units||0);
+    cGA+=(hA[h]?.gmv||0); cGB+=(hB[h]?.gmv||0);
+  }
+  const tmA=cUA?cGA/cUA:0, tmB=cUB?cGB/cUB:0;
+  const dU=cUA?(cUB/cUA-1)*100:0, dG=cGA?(cGB/cGA-1)*100:0, dT=tmA?(tmB/tmA-1)*100:0;
+  const rng = bInc ? `00–${lastOK}h` : 'Día completo';
+
+  $('kpiRow').innerHTML = `
+    <div class="kpi"><div class="kpi-label">${lB} · Unidades (${rng})</div>
+      <div class="kpi-row-inner"><div class="kpi-value">${fN(cUB)}</div><div class="kpi-delta ${dU>=0?'pos':'neg'}">${fP(dU)}</div></div>
+      <div class="kpi-sub">${lA}: ${fN(cUA)} uds</div></div>
+    <div class="kpi"><div class="kpi-label">${lB} · GMV (${rng})</div>
+      <div class="kpi-row-inner"><div class="kpi-value">${fE(cGB)}</div><div class="kpi-delta ${dG>=0?'pos':'neg'}">${fP(dG)}</div></div>
+      <div class="kpi-sub">${lA}: ${fE(cGA)}</div></div>
+    <div class="kpi"><div class="kpi-label">${lB} · Ticket Medio</div>
+      <div class="kpi-row-inner"><div class="kpi-value">${fE(tmB)}</div><div class="kpi-delta ${dT>=0?'pos':'neg'}">${fP(dT)}</div></div>
+      <div class="kpi-sub">${lA}: ${fE(tmA)}</div></div>
+    <div class="kpi"><div class="kpi-label">Filtro activo</div>
+      <div class="kpi-row-inner"><div class="kpi-value" style="font-size:18px">${fLabel}</div></div>
+      <div class="kpi-sub">${rng} comparable · ${locLabel}</div></div>`;
+
+  // CHART
+  const useGmv = currentMetric==='gmv';
+  $('chartTitle').textContent = useGmv ? 'GMV por hora' : 'Unidades por hora';
+  const maxH = Math.max(mxA,mxB,0);
+  const bars = [];
+  for (let h=0;h<=maxH;h++) {
+    const vA = useGmv?(hA[h]?.gmv||0):(hA[h]?.units||0);
+    const vB = useGmv?(hB[h]?.gmv||0):(hB[h]?.units||0);
+    bars.push({h,vA,vB,inc:bInc&&h>lastOK});
+  }
+  const maxV = Math.max(...bars.map(d=>Math.max(d.vA,d.vB)),1);
+  const vFmt = useGmv ? fE : fN;
+
+  $('legendBar').innerHTML = `
+    <div class="legend-item"><div class="legend-dot" style="background:var(--blue)"></div>${lA}</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--accent)"></div>${lB}</div>
+    ${bInc?'<div class="legend-item" style="opacity:0.5">▪ Tenue = sin datos aún</div>':''}`;
+
+  $('barChart').innerHTML = bars.map(d => {
+    const pA = d.vA>0 ? Math.max(d.vA/maxV*100, 1.5) : 0;
+    const pB = d.vB>0 ? Math.max(d.vB/maxV*100, 1.5) : 0;
+    return `<div class="bar-group" style="${d.inc?'opacity:0.25':''}">
+      <div class="bar-pair">
+        <div class="bar bar-a" style="height:${pA.toFixed(1)}%"><div class="tooltip">${lA} ${d.h}h: ${vFmt(d.vA)}</div></div>
+        <div class="bar bar-b" style="height:${pB.toFixed(1)}%"><div class="tooltip">${lB} ${d.h}h: ${vFmt(d.vB)}</div></div>
+      </div>
+      <div class="bar-label">${d.h}</div>
+    </div>`;
+  }).join('');
+
+  // TREND LINES
+  renderTrend(bars, maxV, lastOK, bInc);
+
+  // TABLE
+  const sU = currentMetric!=='gmv', sG = currentMetric!=='units';
+  let hd = `<tr><th>Hora</th>`;
+  if (sU) hd += `<th>${lA} Uds</th><th>${lB} Uds</th><th>Δ Uds</th><th>Acum. Uds ${lA}</th><th>Acum. Uds ${lB}</th><th>Δ Acum. Uds</th>`;
+  if (sG) hd += `<th>${lA} GMV</th><th>${lB} GMV</th><th>Δ GMV</th><th>Acum. GMV ${lA}</th><th>Acum. GMV ${lB}</th><th>Δ Acum. GMV</th>`;
+  hd += `</tr>`;
+  $('tableHead').innerHTML = hd;
+
+  let pkH=-1, pkV=0;
+  for (let h=0;h<=lastOK;h++) { const v=hB[h]?.units||0; if(v>pkV){pkV=v;pkH=h;} }
+
+  let bd='', tUA=0,tUB=0,tGA=0,tGB=0;
+  let acumUA=0, acumUB=0, acumGA=0, acumGB=0;
+  for (let h=0;h<=maxH;h++) {
+    const uA=hA[h]?.units||0, uB=hB[h]?.units||0, gA=hA[h]?.gmv||0, gB=hB[h]?.gmv||0;
+    if (!uA&&!uB) continue;
+    const inc=bInc&&h>lastOK, pk=h===pkH&&!inc;
+    if(!inc){tUA+=uA;tUB+=uB;tGA+=gA;tGB+=gB;}
+    acumUA+=uA; acumUB+=uB; acumGA+=gA; acumGB+=gB;
+    const dUh=uA?(uB/uA-1)*100:(uB>0?100:0);
+    const dGh=gA?(gB/gA-1)*100:(gB>0?100:0);
+    bd += `<tr class="${inc?'row-incomplete':pk?'row-peak':''}">`;
+    bd += `<td>${String(h).padStart(2,'0')}:00–${String(h).padStart(2,'0')}:59</td>`;
+    if(sU) bd += `<td>${fN(uA)}</td><td>${fN(uB)}</td><td class="delta-cell ${dUh>=0?'delta-pos':'delta-neg'}">${uA||uB?fP(dUh):'—'}</td><td style="color:var(--text-dim)">${fN(acumUA)}</td><td style="color:var(--blue)">${fN(acumUB)}</td><td class="delta-cell ${acumUA>0?(acumUB/acumUA-1)>=0?'delta-pos':'delta-neg':'delta-pos'}">${acumUA>0?fP((acumUB/acumUA-1)*100):'—'}</td>`;
+    if(sG) bd += `<td>${fE(gA)}</td><td>${fE(gB)}</td><td class="delta-cell ${dGh>=0?'delta-pos':'delta-neg'}">${gA||gB?fP(dGh):'—'}</td><td style="color:var(--text-dim)">${fE(acumGA)}</td><td style="color:var(--blue)">${fE(acumGB)}</td><td class="delta-cell ${acumGA>0?(acumGB/acumGA-1)>=0?'delta-pos':'delta-neg':'delta-pos'}">${acumGA>0?fP((acumGB/acumGA-1)*100):'—'}</td>`;
+    bd += `</tr>`;
+  }
+
+  const tdU=tUA?(tUB/tUA-1)*100:0, tdG=tGA?(tGB/tGA-1)*100:0;
+  bd += `<tr class="row-total"><td>TOTAL (${rng})</td>`;
+  if(sU) bd+=`<td>${fN(tUA)}</td><td>${fN(tUB)}</td><td class="delta-cell ${tdU>=0?'delta-pos':'delta-neg'}">${fP(tdU)}</td><td style="color:var(--text-dim)">${fN(acumUA)}</td><td style="color:var(--blue)">${fN(acumUB)}</td><td class="delta-cell ${tdU>=0?'delta-pos':'delta-neg'}">${fP(tdU)}</td>`;
+  if(sG) bd+=`<td>${fE(tGA)}</td><td>${fE(tGB)}</td><td class="delta-cell ${tdG>=0?'delta-pos':'delta-neg'}">${fP(tdG)}</td><td style="color:var(--text-dim)">${fE(acumGA)}</td><td style="color:var(--blue)">${fE(acumGB)}</td><td class="delta-cell ${tdG>=0?'delta-pos':'delta-neg'}">${fP(tdG)}</td>`;
+  bd+=`</tr>`;
+  $('tableBody').innerHTML = bd;
+}
+
+// Linear regression: returns {slope, intercept} from array of {x, y}
+function linReg(points) {
+  const n = points.length;
+  if (n < 2) return null;
+  let sx=0, sy=0, sxx=0, sxy=0;
+  for (const p of points) {
+    sx += p.x; sy += p.y; sxx += p.x*p.x; sxy += p.x*p.y;
+  }
+  const denom = n*sxx - sx*sx;
+  if (denom === 0) return null;
+  const slope = (n*sxy - sx*sy) / denom;
+  const intercept = (sy - slope*sx) / n;
+  return {slope, intercept};
+}
+
+function renderTrend(bars, maxV, lastOK, bInc) {
+  const svg = $('trendSvg');
+  const show = $('trendCheck').checked;
+
+  if (!show || bars.length < 2) {
+    svg.innerHTML = '';
+    return;
+  }
+
+  // Wait a frame so bar-chart has laid out
+  requestAnimationFrame(() => {
+    const chartEl = $('barChart');
+    const W = chartEl.offsetWidth;
+    const H = 220;
+    svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+    svg.style.width = W + 'px';
+
+    // Get center X of each bar-group
+    const groups = chartEl.querySelectorAll('.bar-group');
+    const centers = [];
+    for (const g of groups) {
+      centers.push(g.offsetLeft + g.offsetWidth / 2);
+    }
+
+    // Build points for A and B using only complete hours
+    // Points sit at the TOP of each bar (where the bar ends)
+    const cutoff = bInc ? lastOK : bars.length - 1;
+    const ptsA = [], ptsB = [];
+    for (let i = 0; i < bars.length; i++) {
+      if (i > cutoff) break;
+      if (!centers[i]) continue;
+      const x = centers[i];
+      // Y: bottom = H, top = 0. Bar top = H - (value/maxV)*H
+      if (bars[i].vA > 0) ptsA.push({x, y: H - (bars[i].vA / maxV) * H});
+      if (bars[i].vB > 0) ptsB.push({x, y: H - (bars[i].vB / maxV) * H});
+    }
+
+    let svgContent = '';
+
+    function drawTrend(pts, color) {
+      const reg = linReg(pts);
+      if (!reg || pts.length < 2) return '';
+      const x1 = pts[0].x, x2 = pts[pts.length-1].x;
+      let y1 = reg.slope * x1 + reg.intercept;
+      let y2 = reg.slope * x2 + reg.intercept;
+      // Clamp: never go below bar baseline (H) or above chart top (0)
+      y1 = Math.max(0, Math.min(y1, H - 4));
+      y2 = Math.max(0, Math.min(y2, H - 4));
+      return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"
+        style="fill:none;stroke:${color};stroke-width:2.5;stroke-dasharray:10,6;stroke-linecap:round"/>`;
+    }
+
+    svgContent += drawTrend(ptsA, 'rgba(59,130,246,0.6)');
+    svgContent += drawTrend(ptsB, 'rgba(249,115,22,0.6)');
+
+    svg.innerHTML = svgContent;
+  });
+}
+
+$('fileInput').addEventListener('change', e => { if(e.target.files[0]) parseFile(e.target.files[0]); });
+const uz = $('uploadArea');
+uz.addEventListener('dragover', e => { e.preventDefault(); uz.classList.add('dragover'); });
+uz.addEventListener('dragleave', () => uz.classList.remove('dragover'));
+uz.addEventListener('drop', e => { e.preventDefault(); uz.classList.remove('dragover'); if(e.dataTransfer.files[0]) parseFile(e.dataTransfer.files[0]); });
+document.addEventListener('dragover', e => { e.preventDefault(); if($('uploadArea').classList.contains('hidden')){$('uploadArea').classList.remove('hidden');$('uploadArea').classList.add('dragover');} });
+document.addEventListener('drop', e => { e.preventDefault(); $('uploadArea').classList.remove('dragover'); if(e.dataTransfer.files[0]) parseFile(e.dataTransfer.files[0]); });
+
+function exportPNG() {
+  const dayA=$('dayA').value, dayB=$('dayB').value;
+  if (!dayA||!dayB||!DATA.length) return;
+  const hA=aggregate(filterData(dayA)), hB=aggregate(filterData(dayB));
+  const mxA=Object.keys(hA).length?Math.max(...Object.keys(hA).map(Number)):-1;
+  const mxB=Object.keys(hB).length?Math.max(...Object.keys(hB).map(Number)):-1;
+  const bInc=mxB<mxA;
+  const lastOK=bInc?findLastCompleteHour(hB):Math.max(mxA,mxB);
+  const lA=formatDay(dayA), lB=formatDay(dayB);
+  const fLabel=currentBrand==='all'?'Toda Sobremesa':currentBrand+' Sobremesa';
+  const locLabel=currentLocale==='all'?'Todos los países':currentLocale;
+  const rng=bInc?`00–${lastOK}h`:'Día completo';
+  let cUA=0,cUB=0,cGA=0,cGB=0;
+  for(let h=0;h<=lastOK;h++){cUA+=(hA[h]?.units||0);cUB+=(hB[h]?.units||0);cGA+=(hA[h]?.gmv||0);cGB+=(hB[h]?.gmv||0);}
+  const tmA=cUA?cGA/cUA:0, tmB=cUB?cGB/cUB:0;
+  const dU=cUA?(cUB/cUA-1)*100:0, dG=cGA?(cGB/cGA-1)*100:0;
+  const maxH=Math.max(mxA,mxB,0);
+  const tableRows=[];
+  let acUA=0,acUB=0,acGA=0,acGB=0;
+  for(let h=0;h<=maxH;h++){
+    const uA=hA[h]?.units||0,uB=hB[h]?.units||0,gA=hA[h]?.gmv||0,gB=hB[h]?.gmv||0;
+    if(!uA&&!uB) continue;
+    const inc=bInc&&h>lastOK;
+    acUA+=uA; acUB+=uB; acGA+=gA; acGB+=gB;
+    const dAcumU=acUA>0?(acUB/acUA-1)*100:0;
+    const dAcumG=acGA>0?(acGB/acGA-1)*100:0;
+    tableRows.push({h,uA,uB,gA,gB,
+      dUh:uA?(uB/uA-1)*100:(uB>0?100:0),
+      dGh:gA?(gB/gA-1)*100:(gB>0?100:0),
+      acUA,acUB,acGA,acGB,dAcumU,dAcumG,inc});
+  }
+  // Canvas — wider to fit extra cols
+  const W=1400,ROW_H=30,HEAD_H=120,THDR_H=34,FOOT_H=46;
+  const H=HEAD_H+THDR_H+ROW_H*(tableRows.length+1)+FOOT_H;
+  const canvas=document.createElement('canvas');
+  canvas.width=W*2; canvas.height=H*2;
+  const ctx=canvas.getContext('2d');
+  ctx.scale(2,2);
+  const C={bg:'#0e1117',surface:'#161b22',surface2:'#1c2230',border:'#2a3140',text:'#e6edf3',dim:'#8b949e',accent:'#f97316',green:'#22c55e',red:'#ef4444',blue:'#3b82f6'};
+  function rr(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.quadraticCurveTo(x+w,y,x+w,y+r);ctx.lineTo(x+w,y+h-r);ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);ctx.lineTo(x+r,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h-r);ctx.lineTo(x,y+r);ctx.quadraticCurveTo(x,y,x+r,y);ctx.closePath();}
+  ctx.fillStyle=C.bg; ctx.fillRect(0,0,W,H);
+  ctx.fillStyle=C.surface; ctx.fillRect(0,0,W,HEAD_H);
+  ctx.fillStyle=C.border; ctx.fillRect(0,HEAD_H-1,W,1);
+  const g=ctx.createLinearGradient(20,18,58,56); g.addColorStop(0,'#f97316'); g.addColorStop(1,'#fb923c');
+  ctx.fillStyle=g; rr(20,18,38,38,8); ctx.fill();
+  ctx.fillStyle='#fff'; ctx.font='bold 13px sans-serif'; ctx.textAlign='center'; ctx.fillText('PC',39,42);
+  ctx.textAlign='left'; ctx.fillStyle=C.text; ctx.font='bold 16px sans-serif'; ctx.fillText('PcCom Sobremesa · ',68,38);
+  const tw=ctx.measureText('PcCom Sobremesa · ').width;
+  ctx.fillStyle=C.accent; ctx.fillText('Dashboard Ventas por Horas',68+tw,38);
+  ctx.fillStyle=C.dim; ctx.font='12px sans-serif';
+  ctx.fillText(`Comparativa ${lA} vs ${lB} · ${fLabel} · ${locLabel} · ${rng}`,68,57);
+  const now=new Date();
+  const dateStr=now.toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'numeric'})+' '+now.toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'});
+  const kpis=[{l:`${lB} UNIDADES`,v:fN(cUB),sub:`${lA}: ${fN(cUA)}`,d:dU},{l:`${lB} GMV`,v:fE(cGB),sub:`${lA}: ${fE(cGA)}`,d:dG}];
+  const colDefs=[
+    {l:'HORA',             w:110,a:'left'},
+    {l:`${lA} UDS`,        w:76, a:'right'},
+    {l:`${lB} UDS`,        w:76, a:'right'},
+    {l:'Δ UDS',            w:64, a:'right'},
+    {l:`ACUM UDS ${lA}`,   w:96, a:'right'},
+    {l:`ACUM UDS ${lB}`,   w:96, a:'right'},
+    {l:'Δ ACUM UDS',       w:72, a:'right'},
+    {l:`${lA} GMV`,        w:96, a:'right'},
+    {l:`${lB} GMV`,        w:96, a:'right'},
+    {l:'Δ GMV',            w:64, a:'right'},
+    {l:`ACUM GMV ${lA}`,   w:110,a:'right'},
+    {l:`ACUM GMV ${lB}`,   w:110,a:'right'},
+    {l:'Δ ACUM GMV',       w:78, a:'right'},
+  ];
+  const totalRaw=colDefs.reduce((s,c)=>s+c.w,0);
+  const scale=W/totalRaw;
+  const cols=colDefs.map(c=>({...c,w:Math.round(c.w*scale)}));
+  // Fix rounding drift on last col
+  const drift=W-cols.reduce((s,c)=>s+c.w,0);
+  cols[cols.length-1].w+=drift;
+  let cx=0; cols.forEach(c=>{c.x=cx;cx+=c.w;});
+  // KPIs — expand to fill space between subtitle and right edge
+  const kpiAreaX=68, kpiAreaW=W-kpiAreaX-18;
+  const kW=Math.floor((kpiAreaW-(kpis.length-1)*10)/kpis.length);
+  kpis.forEach((k,i)=>{
+    const x=kpiAreaX+i*(kW+10);
+    ctx.fillStyle=C.surface2;rr(x,62,kW,52,8);ctx.fill();
+    // Row 1: label · delta
+    ctx.fillStyle=C.dim;ctx.font='9px sans-serif';ctx.textAlign='left';
+    ctx.fillText(k.l,x+10,75);
+    const labelW=ctx.measureText(k.l).width;
+    ctx.fillStyle=k.d>=0?C.green:C.red;ctx.font='bold 9px sans-serif';
+    ctx.fillText((k.d>=0?'+':'')+k.d.toFixed(1)+'%',x+10+labelW+6,75);
+    // Row 2: value
+    ctx.fillStyle=C.text;ctx.font='bold 16px sans-serif';
+    ctx.fillText(k.v,x+10,93);
+    // Row 3: sub (comparison)
+    ctx.fillStyle=C.dim;ctx.font='9px sans-serif';
+    ctx.fillText(k.sub,x+10,107);
+  });
+  const TY=HEAD_H;
+  ctx.fillStyle=C.surface2;ctx.fillRect(0,TY,W,THDR_H);ctx.fillStyle=C.border;ctx.fillRect(0,TY+THDR_H-1,W,1);
+  cols.forEach(c=>{ctx.fillStyle=C.dim;ctx.font='bold 9px sans-serif';ctx.textAlign=c.a;ctx.fillText(c.l,c.a==='right'?c.x+c.w-12:c.x,TY+22);});
+  tableRows.forEach((r,idx)=>{
+    const ry=TY+THDR_H+idx*ROW_H;
+    if(idx%2===0){ctx.fillStyle=C.surface;ctx.fillRect(0,ry,W,ROW_H);}
+    // Incomplete rows: semi-transparent overlay to dim them like dashboard opacity:0.25
+    if(r.inc){ctx.fillStyle='rgba(14,17,23,0.72)';ctx.fillRect(0,ry,W,ROW_H);}
+    ctx.fillStyle=C.border;ctx.fillRect(0,ry+ROW_H-1,W,1);
+    const cy=ry+20;
+    // For inc rows everything goes dim
+    const dc=(col)=> r.inc ? C.dim : col;
+    const vals=[
+      {v:`${String(r.h).padStart(2,'0')}:00–${String(r.h).padStart(2,'0')}:59`, c:dc(C.text), f:'11px sans-serif',   a:'left'},
+      {v:fN(r.uA),   c:C.dim,                                              f:'10px monospace',      a:'right'},
+      {v:fN(r.uB),   c:dc(C.text),                                         f:'10px monospace',      a:'right'},
+      {v:r.uA||r.uB?(r.dUh>=0?'+':'')+r.dUh.toFixed(1)+'%':'—',           c:dc(r.dUh>=0?C.green:C.red), f:'bold 10px monospace',a:'right'},
+      {v:fN(r.acUA), c:C.dim,                                              f:'10px monospace',      a:'right'},
+      {v:fN(r.acUB), c:dc(C.blue),                                         f:'bold 10px monospace', a:'right'},
+      {v:r.acUA>0?(r.dAcumU>=0?'+':'')+r.dAcumU.toFixed(1)+'%':'—',       c:dc(r.dAcumU>=0?C.green:C.red), f:'bold 10px monospace',a:'right'},
+      {v:fE(r.gA),   c:C.dim,                                              f:'10px monospace',      a:'right'},
+      {v:fE(r.gB),   c:dc(C.text),                                         f:'10px monospace',      a:'right'},
+      {v:r.gA||r.gB?(r.dGh>=0?'+':'')+r.dGh.toFixed(1)+'%':'—',           c:dc(r.dGh>=0?C.green:C.red),  f:'bold 10px monospace',a:'right'},
+      {v:fE(r.acGA), c:C.dim,                                              f:'10px monospace',      a:'right'},
+      {v:fE(r.acGB), c:dc(C.blue),                                         f:'bold 10px monospace', a:'right'},
+      {v:r.acGA>0?(r.dAcumG>=0?'+':'')+r.dAcumG.toFixed(1)+'%':'—',       c:dc(r.dAcumG>=0?C.green:C.red), f:'bold 10px monospace',a:'right'},
+    ];
+    vals.forEach((v,i)=>{const col=cols[i];ctx.fillStyle=v.c;ctx.font=v.f;ctx.textAlign=v.a;ctx.fillText(v.v,v.a==='right'?col.x+col.w-12:col.x,cy);});
+  });
+  let tUA=0,tUB=0,tGA=0,tGB=0;
+  tableRows.filter(r=>!r.inc).forEach(r=>{tUA+=r.uA;tUB+=r.uB;tGA+=r.gA;tGB+=r.gB;});
+  const tdU=tUA?(tUB/tUA-1)*100:0, tdG=tGA?(tGB/tGA-1)*100:0;
+  const lastR=tableRows[tableRows.length-1];
+  const totY=TY+THDR_H+tableRows.length*ROW_H;
+  ctx.fillStyle=C.surface2;ctx.fillRect(0,totY,W,ROW_H);ctx.fillStyle=C.border;ctx.fillRect(0,totY,W,2);
+  const totVals=[
+    {v:`TOTAL (${rng})`,                                   c:C.text,  f:'bold 11px sans-serif',   a:'left'},
+    {v:fN(tUA),                                            c:C.dim,   f:'bold 10px monospace',    a:'right'},
+    {v:fN(tUB),                                            c:C.text,  f:'bold 10px monospace',    a:'right'},
+    {v:(tdU>=0?'+':'')+tdU.toFixed(1)+'%',                c:tdU>=0?C.green:C.red,f:'bold 10px monospace',a:'right'},
+    {v:fN(lastR?.acUA||tUA),                               c:C.dim,   f:'bold 10px monospace',    a:'right'},
+    {v:fN(lastR?.acUB||tUB),                               c:C.blue,  f:'bold 10px monospace',    a:'right'},
+    {v:(tdU>=0?'+':'')+tdU.toFixed(1)+'%',                c:tdU>=0?C.green:C.red,f:'bold 10px monospace',a:'right'},
+    {v:fE(tGA),                                            c:C.dim,   f:'bold 10px monospace',    a:'right'},
+    {v:fE(tGB),                                            c:C.text,  f:'bold 10px monospace',    a:'right'},
+    {v:(tdG>=0?'+':'')+tdG.toFixed(1)+'%',                c:tdG>=0?C.green:C.red,f:'bold 10px monospace',a:'right'},
+    {v:fE(lastR?.acGA||tGA),                               c:C.dim,   f:'bold 10px monospace',    a:'right'},
+    {v:fE(lastR?.acGB||tGB),                               c:C.blue,  f:'bold 10px monospace',    a:'right'},
+    {v:(tdG>=0?'+':'')+tdG.toFixed(1)+'%',                c:tdG>=0?C.green:C.red,f:'bold 10px monospace',a:'right'},
+  ];
+  totVals.forEach((v,i)=>{const col=cols[i];ctx.fillStyle=v.c;ctx.font=v.f;ctx.textAlign=v.a;ctx.fillText(v.v,v.a==='right'?col.x+col.w-12:col.x,totY+20);});
+  const fy=totY+ROW_H;
+  ctx.fillStyle=C.surface;ctx.fillRect(0,fy,W,FOOT_H);ctx.fillStyle=C.border;ctx.fillRect(0,fy,W,1);
+  ctx.fillStyle=C.dim;ctx.font='11px sans-serif';ctx.textAlign='left';ctx.fillText('PcComponentes · Sobremesa Dashboard · Ventas por horas',18,fy+18);
+  ctx.textAlign='right';ctx.fillText('Generado '+dateStr,W-18,fy+18);
+  const a=document.createElement('a');
+  a.download=`informe_sobremesa_${dayB}.png`;
+  a.href=canvas.toDataURL('image/png');
+  a.click();
+}
+
+// ── MODAL ─────────────────────────────────────────────────────────────────────
+const WEBHOOK_URL = 'https://default85d540b584ba4d1396122243bb7abc.14.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/a9cca49070274d5e9b05e6098d81a56e/triggers/manual/paths/invoke?api-version=1&sp=%2Ftriggers%2Fmanual%2Frun&sv=1.0&sig=OLKLp2viP2aOS_uDgvCGwJlxcmAovwRePXiRgYNXyEQ';
+
+function openModal() { document.getElementById('modalOverlay').classList.remove('hidden'); document.getElementById('modalStatus').textContent=''; }
+function closeModal() { document.getElementById('modalOverlay').classList.add('hidden'); }
+document.getElementById('modalOverlay').addEventListener('click', function(e){ if(e.target===this) closeModal(); });
+
+function doExportPNG() { closeModal(); exportPNG(); }
+
+async function doSendTeams() {
+  const status = document.getElementById('modalStatus');
+  status.style.color = '#8b949e';
+  status.textContent = '⏳ Enviando al canal de Teams…';
+
+  const dayA = $('dayA').value, dayB = $('dayB').value;
+  if (!dayA || !dayB || !DATA.length) { status.style.color='#ef4444'; status.textContent='✕ No hay datos cargados'; return; }
+
+  const hA = aggregate(filterData(dayA)), hB = aggregate(filterData(dayB));
+  const mxA = Object.keys(hA).length ? Math.max(...Object.keys(hA).map(Number)) : -1;
+  const mxB = Object.keys(hB).length ? Math.max(...Object.keys(hB).map(Number)) : -1;
+  const bInc = mxB < mxA;
+  const lastOK = bInc ? findLastCompleteHour(hB) : Math.max(mxA, mxB);
+  const lA = formatDay(dayA), lB = formatDay(dayB);
+  const rng = bInc ? `00–${lastOK}h` : 'Día completo';
+  const fLabel = currentBrand === 'all' ? 'Toda Sobremesa' : currentBrand + ' Sobremesa';
+
+  let cUA=0,cUB=0,cGA=0,cGB=0;
+  for(let h=0;h<=lastOK;h++){cUA+=(hA[h]?.units||0);cUB+=(hB[h]?.units||0);cGA+=(hA[h]?.gmv||0);cGB+=(hB[h]?.gmv||0);}
+  const dU = cUA?(cUB/cUA-1)*100:0, dG = cGA?(cGB/cGA-1)*100:0;
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'numeric'})+' '+now.toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'});
+
+  const body = {
+    titulo: `📊 Sobremesa Dashboard · ${lB} vs ${lA}`,
+    fecha: dateStr,
+    filtro: `${fLabel} · ${rng}`,
+    resumen: `📦 Unidades ${lB}: ${fN(cUB)} (${dU>=0?'+':''}${dU.toFixed(1)}% vs ${lA}: ${fN(cUA)})\n💶 GMV ${lB}: ${fE(cGB)} (${dG>=0?'+':''}${dG.toFixed(1)}% vs ${lA}: ${fE(cGA)})`
+  };
+
+  try {
+    const res = await fetch(WEBHOOK_URL, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify(body)
+    });
+    if (res.ok || res.status === 202) {
+      status.style.color = '#22c55e';
+      status.textContent = '✓ Enviado correctamente al canal de Teams';
+      setTimeout(closeModal, 2000);
+    } else {
+      throw new Error('HTTP ' + res.status);
+    }
+  } catch(e) {
+    status.style.color = '#ef4444';
+    status.textContent = '✕ Error al enviar: ' + e.message;
+  }
+}
+</script>
+</body>
+</html>
