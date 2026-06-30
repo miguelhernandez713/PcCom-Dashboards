@@ -149,6 +149,12 @@
     <div class="lbl">📊 Ventas</div>
     <div class="upload-drop" id="drop">Arrastra el orders_details (.xlsx o .csv) · o haz clic para seleccionar</div>
     <div class="upload-loaded" id="loadedLabel"></div>
+    <div id="dateSelectWrap" style="display:none;align-items:center;gap:8px">
+      <span style="font-size:12px;color:var(--text-dim);white-space:nowrap">📅 Ver:</span>
+      <select id="dateSelect" onchange="onDateChange()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:6px 12px;border-radius:8px;font-size:12px;font-family:'DM Sans',sans-serif;outline:none;cursor:pointer">
+        <option value="all">📅 Todas las fechas (global)</option>
+      </select>
+    </div>
     <button class="btn-sm" id="btnClear" style="display:none" onclick="clearSales()">✕ Quitar</button>
     <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" style="display:none">
   </div>
@@ -197,12 +203,13 @@
   <div class="table-wrap">
     <table>
       <thead>
-        <tr>
+        <tr id="theadRow">
           <th onclick="sortBy('codigo')" id="th-codigo">Código</th>
           <th onclick="sortBy('nombre')" id="th-nombre">Artículo</th>
           <th onclick="sortBy('precio')" id="th-precio">Precio €</th>
           <th onclick="sortBy('uds')" id="th-uds">Ofertadas</th>
-          <th onclick="sortBy('vendidas')" id="th-vendidas">Vendidas</th>
+          <th onclick="sortBy('vendidas')" id="th-vendidas">Vendidas (total)</th>
+          <th onclick="sortBy('vendidasDia')" id="th-vendidasDia" style="display:none">Vendidas</th>
           <th onclick="sortBy('restante')" id="th-restante">Ofertas rest.</th>
           <th onclick="sortBy('pct')" id="th-pct">% Vendido</th>
         </tr>
@@ -214,13 +221,20 @@
   <!-- Resumen por gama -->
   <div class="table-controls" style="margin-top:8px">
     <div class="section-title">📊 Resumen de ventas por gama</div>
+    <div id="dateSelectWrapGamma" style="display:none;align-items:center;gap:8px">
+      <span style="font-size:12px;color:var(--text-dim);white-space:nowrap">📅 Ver:</span>
+      <select id="dateSelectGamma" onchange="onDateChangeGamma()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:6px 12px;border-radius:8px;font-size:12px;font-family:'DM Sans',sans-serif;outline:none;cursor:pointer">
+        <option value="all">📅 Todas las fechas (global)</option>
+      </select>
+    </div>
   </div>
   <div class="table-wrap">
     <table>
       <thead>
-        <tr>
+        <tr id="theadRowGamma">
           <th style="text-align:left">Gama</th>
           <th>Vendidas en campaña</th>
+          <th id="th-gammaDia" style="display:none">Vendidas (día)</th>
           <th>Vendidas fuera de campaña</th>
           <th>Total vendidas</th>
         </tr>
@@ -232,14 +246,21 @@
   <!-- Fuera de campaña -->
   <div class="table-controls" style="margin-top:8px">
     <div class="section-title">📋 PcCom Sobremesa vendidos fuera de campaña</div>
+    <div id="dateSelectWrapOOC" style="display:none;align-items:center;gap:8px">
+      <span style="font-size:12px;color:var(--text-dim);white-space:nowrap">📅 Ver:</span>
+      <select id="dateSelectOOC" onchange="onDateChangeOOC()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:6px 12px;border-radius:8px;font-size:12px;font-family:'DM Sans',sans-serif;outline:none;cursor:pointer">
+        <option value="all">📅 Todas las fechas (global)</option>
+      </select>
+    </div>
   </div>
   <div class="table-wrap">
     <table>
       <thead>
-        <tr>
+        <tr id="theadRowOOC">
           <th style="text-align:left">Código</th>
           <th style="text-align:left">Artículo</th>
-          <th>Vendidas</th>
+          <th>Vendidas (total)</th>
+          <th id="th-oocDia" style="display:none">Vendidas</th>
         </tr>
       </thead>
       <tbody id="tbodyOOC"></tbody>
@@ -295,9 +316,13 @@ const CAMPAIGN_CODES = new Set(CAMPAIGN.map(r => r.codigo));
 const TOTAL_OF = CAMPAIGN.reduce((s,r)=>s+r.uds, 0); // 4165
 
 // ── STATE ─────────────────────────────────────────────────────────────────────
-let salesData = {};
+let rawRows = [];       // todas las filas del archivo cargado
+let salesData = {};     // acumulado GLOBAL de toda la campaña (nunca cambia con el filtro de fecha)
+let salesDataDay = {};  // solo unidades vendidas en el día seleccionado
 let outOfCampaign = {};
+let outOfCampaignDay = {};
 let hasSales  = false;
+let selectedDate = 'all'; // 'all' o 'DD/MM/YYYY'
 let filter    = 'all';
 let sortCol   = 'fi';
 let sortDir   = 1;
@@ -347,8 +372,7 @@ function splitLine(line, delim) {
 }
 
 function parseSales(rows, fname) {
-  salesData = {};
-  outOfCampaign = {}; // codigo -> {units, name}
+  rawRows = rows;
   if (!rows.length) return;
   const keys = Object.keys(rows[0]);
   const codKey = keys.find(k=>k==='product_id')||keys.find(k=>k==='product_reference')||keys.find(k=>/codigo|articulo|sku/i.test(k));
@@ -356,44 +380,146 @@ function parseSales(rows, fname) {
   const nameKey = keys.find(k=>k==='name');
   const brandKey = keys.find(k=>k==='own_brand');
   const famKey = keys.find(k=>k==='family');
+  const dateKey = keys.find(k=>k==='date')||keys.find(k=>k==='local_time')||keys.find(k=>/fecha|date/i.test(k));
   if (!codKey||!udsKey) { alert('Columnas no reconocidas.\nEncontradas: '+keys.slice(0,10).join(', ')); return; }
 
+  rawRows._codKey = codKey; rawRows._udsKey = udsKey; rawRows._nameKey = nameKey;
+  rawRows._brandKey = brandKey; rawRows._famKey = famKey; rawRows._dateKey = dateKey;
+
+  // Extraer fechas únicas disponibles en el archivo (formato DD/M/YYYY)
+  const datesSet = new Set();
+  if (dateKey) {
+    rows.forEach(row => {
+      const raw = String(row[dateKey]||'').trim();
+      const datePart = raw.split(',')[0].trim(); // "29/6/2026, 09:28" -> "29/6/2026"
+      if (datePart) datesSet.add(datePart);
+    });
+  }
+  const sortedDates = [...datesSet].sort((a,b) => {
+    const [da,ma,ya] = a.split('/').map(Number);
+    const [db,mb,yb] = b.split('/').map(Number);
+    return new Date(ya,ma-1,da) - new Date(yb,mb-1,db);
+  });
+
+  const optsHtml = '<option value="all">📅 Todas las fechas (global)</option>' +
+    sortedDates.map(d => `<option value="${d}">${d}</option>`).join('');
+
+  const sel = document.getElementById('dateSelect');
+  sel.innerHTML = optsHtml;
+  sel.disabled = sortedDates.length === 0;
+
+  const selGamma = document.getElementById('dateSelectGamma');
+  selGamma.innerHTML = optsHtml;
+  selGamma.disabled = sortedDates.length === 0;
+
+  const selOOC = document.getElementById('dateSelectOOC');
+  selOOC.innerHTML = optsHtml;
+  selOOC.disabled = sortedDates.length === 0;
+
+  selectedDate = 'all';
+
+  hasSales = true;
+  recomputeFromRaw();
+
+  drop.style.display='none';
+  document.getElementById('loadedLabel').style.display='block';
+  document.getElementById('dateSelectWrap').style.display='flex';
+  document.getElementById('dateSelectWrapGamma').style.display='flex';
+  document.getElementById('dateSelectWrapOOC').style.display='flex';
+  document.getElementById('btnClear').style.display='inline-block';
+  document.getElementById('btnExport').disabled = false;
+}
+
+// Recalcula salesData (global, acumulado de toda la campaña) y salesDataDay (solo el día seleccionado)
+function recomputeFromRaw() {
+  salesData = {};          // acumulado GLOBAL — nunca cambia con el filtro de fecha
+  salesDataDay = {};       // solo unidades vendidas en el día seleccionado (vacío si selectedDate==='all')
+  outOfCampaign = {};      // acumulado GLOBAL de fuera de campaña
+  outOfCampaignDay = {};   // fuera de campaña, solo el día seleccionado
+  if (!rawRows.length) { updateLoadedLabel(0,0); return; }
+
+  const { _codKey:codKey, _udsKey:udsKey, _nameKey:nameKey, _brandKey:brandKey, _famKey:famKey, _dateKey:dateKey } = rawRows;
+
   let totalFilasCampana = 0;
-  for (const row of rows) {
+  let totalFilasDia = 0;
+  for (const row of rawRows) {
     const cod = String(row[codKey]||'').trim();
     const qty = parseInt(row[udsKey])||0;
     if (!cod) continue;
+
+    let isSelectedDay = false;
+    if (dateKey) {
+      const raw = String(row[dateKey]||'').trim();
+      const datePart = raw.split(',')[0].trim();
+      isSelectedDay = (datePart === selectedDate);
+    }
+
     if (CAMPAIGN_CODES.has(cod)) {
+      // Acumulado global (siempre)
       salesData[cod] = (salesData[cod]||0) + qty;
       totalFilasCampana++;
+      // Acumulado del día seleccionado
+      if (selectedDate !== 'all' && isSelectedDay) {
+        salesDataDay[cod] = (salesDataDay[cod]||0) + qty;
+        totalFilasDia++;
+      }
     } else {
-      // Capturamos ventas PcCom Sobremesa que NO están en campaña
       const isOwnBrand = brandKey ? (String(row[brandKey]).toLowerCase()==='true') : true;
       const isSobremesa = famKey ? /sobremesa/i.test(String(row[famKey])) : true;
       if (isOwnBrand && isSobremesa) {
         const name = nameKey ? String(row[nameKey]||'').trim() : '';
         if (!outOfCampaign[cod]) outOfCampaign[cod] = {units:0, name};
         outOfCampaign[cod].units += qty;
+        if (selectedDate !== 'all' && isSelectedDay) {
+          if (!outOfCampaignDay[cod]) outOfCampaignDay[cod] = {units:0, name};
+          outOfCampaignDay[cod].units += qty;
+        }
       }
     }
   }
 
-  hasSales = true;
-  const totV = Object.values(salesData).reduce((s,v)=>s+v, 0);
-
-  drop.style.display='none';
-  document.getElementById('loadedLabel').style.display='block';
-  document.getElementById('loadedLabel').textContent = `✓ ${fname} · ${totV.toLocaleString('es-ES')} uds vendidas en campaña (${totalFilasCampana} líneas de ${rows.length} totales)`;
-  document.getElementById('btnClear').style.display='inline-block';
-  document.getElementById('btnExport').disabled = false;
-
+  updateLoadedLabel(totalFilasCampana, totalFilasDia, rawRows.length);
   updateKPIs(); render(); renderOutOfCampaign(); renderGammaSummary();
 }
 
+function updateLoadedLabel(totalFilasCampana, totalFilasDia, totalFilas) {
+  const totV = Object.values(salesData).reduce((s,v)=>s+v, 0);
+  if (selectedDate === 'all') {
+    document.getElementById('loadedLabel').textContent = `✓ ${totV.toLocaleString('es-ES')} uds vendidas en campaña (acumulado global) · ${totalFilasCampana} líneas de campaña de ${totalFilas} totales`;
+  } else {
+    const totVDia = Object.values(salesDataDay).reduce((s,v)=>s+v, 0);
+    document.getElementById('loadedLabel').textContent = `✓ Acumulado global: ${totV.toLocaleString('es-ES')} uds · Vendido el ${selectedDate}: ${totVDia.toLocaleString('es-ES')} uds (${totalFilasDia} líneas de ese día)`;
+  }
+}
+
+function onDateChange() {
+  selectedDate = document.getElementById('dateSelect').value;
+  document.getElementById('dateSelectGamma').value = selectedDate;
+  document.getElementById('dateSelectOOC').value = selectedDate;
+  recomputeFromRaw();
+}
+
+function onDateChangeGamma() {
+  selectedDate = document.getElementById('dateSelectGamma').value;
+  document.getElementById('dateSelect').value = selectedDate;
+  document.getElementById('dateSelectOOC').value = selectedDate;
+  recomputeFromRaw();
+}
+
+function onDateChangeOOC() {
+  selectedDate = document.getElementById('dateSelectOOC').value;
+  document.getElementById('dateSelect').value = selectedDate;
+  document.getElementById('dateSelectGamma').value = selectedDate;
+  recomputeFromRaw();
+}
+
 function clearSales() {
-  salesData={}; outOfCampaign={}; hasSales=false;
+  rawRows=[]; salesData={}; salesDataDay={}; outOfCampaign={}; outOfCampaignDay={}; hasSales=false; selectedDate='all';
   drop.style.display='';
   document.getElementById('loadedLabel').style.display='none';
+  document.getElementById('dateSelectWrap').style.display='none';
+  document.getElementById('dateSelectWrapGamma').style.display='none';
+  document.getElementById('dateSelectWrapOOC').style.display='none';
   document.getElementById('btnClear').style.display='none';
   document.getElementById('btnExport').disabled = true;
   document.getElementById('fileInput').value='';
@@ -403,10 +529,15 @@ function clearSales() {
 // ── KPIs ──────────────────────────────────────────────────────────────────────
 function updateKPIs() {
   const totV = hasSales ? CAMPAIGN.reduce((s,r)=>s+(salesData[r.codigo]||0), 0) : 0;
+  const totVDia = hasSales ? CAMPAIGN.reduce((s,r)=>s+(salesDataDay[r.codigo]||0), 0) : 0;
   const rest  = TOTAL_OF - totV;
   const pct   = TOTAL_OF>0 ? totV/TOTAL_OF : 0;
   document.getElementById('kpiV').textContent    = hasSales ? totV.toLocaleString('es-ES') : '—';
-  document.getElementById('kpiVSub').textContent = hasSales ? (pct*100).toFixed(1)+'% de cobertura' : 'carga ventas para ver';
+  if (hasSales && selectedDate !== 'all') {
+    document.getElementById('kpiVSub').textContent = `${(pct*100).toFixed(1)}% cobertura · ${totVDia.toLocaleString('es-ES')} uds el ${selectedDate}`;
+  } else {
+    document.getElementById('kpiVSub').textContent = hasSales ? (pct*100).toFixed(1)+'% de cobertura' : 'carga ventas para ver';
+  }
   document.getElementById('kpiR').textContent    = hasSales ? rest.toLocaleString('es-ES') : '—';
   document.getElementById('kpiRSub').textContent = hasSales ? (rest>0?rest.toLocaleString('es-ES')+' ofertas sin vender':'¡Todo vendido!') : 'ofertadas − vendidas';
   document.getElementById('barV').style.width    = (pct*100)+'%';
@@ -419,12 +550,19 @@ function sortBy(col){sortDir=sortCol===col?-sortDir:1;sortCol=col;document.query
 
 function render() {
   const search = (document.getElementById('searchBox').value||'').toLowerCase();
+  const showDayCol = hasSales && selectedDate !== 'all';
+
+  // Mostrar/ocultar columna "Vendidas (día)" según haya filtro de fecha activo
+  document.getElementById('th-vendidasDia').style.display = showDayCol ? '' : 'none';
+  document.getElementById('th-vendidasDia').textContent = `Vendidas (${selectedDate})`;
+  document.getElementById('th-vendidas').textContent = showDayCol ? 'Vendidas (total)' : 'Vendidas';
 
   let rows = CAMPAIGN.map(r=>{
-    const vendidas = hasSales?(salesData[r.codigo]||0):0;
-    const restante = r.uds - vendidas;
-    const pct      = r.uds>0?vendidas/r.uds:0;
-    return {...r, vendidas, restante, pct};
+    const vendidas    = hasSales?(salesData[r.codigo]||0):0;       // acumulado GLOBAL, siempre igual
+    const vendidasDia = hasSales?(salesDataDay[r.codigo]||0):0;    // solo el día seleccionado
+    const restante = r.uds - vendidas;                              // basado en el acumulado global
+    const pct      = r.uds>0?vendidas/r.uds:0;                      // % basado en acumulado global
+    return {...r, vendidas, vendidasDia, restante, pct};
   });
 
   if (filter==='low') rows=rows.filter(r=>r.pct>=0.5&&r.restante>0);
@@ -439,21 +577,23 @@ function render() {
     return (va-vb)*sortDir;
   });
 
-  let html='', lastGroup=null, totOf=0, totV=0;
+  let html='', lastGroup=null, totOf=0, totV=0, totVDia=0;
+  const colspan = showDayCol ? 8 : 7;
 
   rows.forEach(r=>{
     const grp=r.fi+r.hi;
     if(grp!==lastGroup){
-      html+=`<tr class="group-row"><td colspan="7">📅 Activas desde el ${r.fi} a las ${r.hi==='00:00'?'00:00':r.hi} h</td></tr>`;
+      html+=`<tr class="group-row"><td colspan="${colspan}">📅 Activas desde el ${r.fi} a las ${r.hi==='00:00'?'00:00':r.hi} h</td></tr>`;
       lastGroup=grp;
     }
-    totOf+=r.uds; totV+=r.vendidas;
+    totOf+=r.uds; totV+=r.vendidas; totVDia+=r.vendidasDia;
     const pctW=Math.min(r.pct*100,100).toFixed(0);
     let chipCls='chip-ok',chipTxt='✓ Disponible';
     if(r.restante<=0){chipCls='chip-out';chipTxt='✕ Sin ofertas';}
     else if(r.pct>=0.75){chipCls='chip-low';chipTxt='! Pocas ofertas';}
     const fillColor = !hasSales ? 'var(--text-dim)' : r.vendidas===0 ? 'var(--red)' : r.restante<=0 ? 'var(--red)' : r.pct>=0.75 ? 'var(--yellow)' : 'var(--green)';
     const vTxt=hasSales?r.vendidas.toLocaleString('es-ES'):'<span class="dim">—</span>';
+    const vDiaTxt=hasSales?(r.vendidasDia>0?`<span style="color:var(--blue);font-weight:600">${r.vendidasDia.toLocaleString('es-ES')}</span>`:'<span class="dim">0</span>'):'<span class="dim">—</span>';
     const rTxt=hasSales?r.restante.toLocaleString('es-ES'):'<span class="dim">—</span>';
     const pTxt=hasSales?pctW+'%':'—';
 
@@ -463,6 +603,7 @@ function render() {
       <td>${r.precio.toLocaleString('es-ES')} €</td>
       <td>${r.uds.toLocaleString('es-ES')}</td>
       <td>${vTxt}</td>
+      <td style="display:${showDayCol?'':'none'}">${vDiaTxt}</td>
       <td>${rTxt}</td>
       <td><div class="progress-wrap"><div class="progress-track"><div class="progress-fill" style="width:${hasSales?pctW:0}%;background:${fillColor}"></div></div><span class="pct-text" style="color:${fillColor}">${pTxt}</span></div></td>
     </tr>`;
@@ -475,6 +616,7 @@ function render() {
     <td></td>
     <td>${totOf.toLocaleString('es-ES')}</td>
     <td>${hasSales?totV.toLocaleString('es-ES'):'—'}</td>
+    <td style="display:${showDayCol?'':'none'};color:var(--blue)">${hasSales?totVDia.toLocaleString('es-ES'):'—'}</td>
     <td>${hasSales?totRest.toLocaleString('es-ES'):'—'}</td>
     <td style="text-align:right;color:var(--accent)">${hasSales?(totOf>0?(totV/totOf*100).toFixed(1)+'%':'—'):'—'}</td>
   </tr>`;
@@ -506,63 +648,96 @@ function normalizeGamma(name, codigo) {
 // ── FUERA DE CAMPAÑA ──────────────────────────────────────────────────────────
 function renderOutOfCampaign() {
   const tbody = document.getElementById('tbodyOOC');
+  const showDayCol = hasSales && selectedDate !== 'all';
+
+  document.getElementById('th-oocDia').style.display = showDayCol ? '' : 'none';
+  document.getElementById('th-oocDia').textContent = `Vendidas (${selectedDate})`;
+
   const entries = Object.entries(outOfCampaign).sort((a,b) => b[1].units - a[1].units);
+  const colspan = showDayCol ? 4 : 3;
   if (!entries.length) {
-    tbody.innerHTML = `<tr><td colspan="3" style="text-align:center;color:var(--text-dim);padding:24px;font-family:'DM Sans',sans-serif">${hasSales ? 'No se han detectado ventas PcCom Sobremesa fuera de campaña' : 'Carga el archivo de ventas para ver este detalle'}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="${colspan}" style="text-align:center;color:var(--text-dim);padding:24px;font-family:'DM Sans',sans-serif">${hasSales ? 'No se han detectado ventas PcCom Sobremesa fuera de campaña' : 'Carga el archivo de ventas para ver este detalle'}</td></tr>`;
     return;
   }
   let html = '';
-  let total = 0;
+  let total = 0, totalDia = 0;
   entries.forEach(([cod, data]) => {
     total += data.units;
+    const diaUnits = outOfCampaignDay[cod]?.units || 0;
+    totalDia += diaUnits;
+    const diaTxt = diaUnits > 0 ? `<span style="color:var(--blue);font-weight:600">${diaUnits.toLocaleString('es-ES')}</span>` : '<span class="dim">0</span>';
     html += `<tr>
       <td style="text-align:left">${cod}</td>
       <td style="text-align:left;font-family:'DM Sans',sans-serif;font-size:12px">${data.name || '—'}</td>
       <td style="color:var(--yellow);font-weight:600">${data.units.toLocaleString('es-ES')}</td>
+      <td style="display:${showDayCol?'':'none'}">${diaTxt}</td>
     </tr>`;
   });
-  html += `<tr class="total-row"><td>TOTAL</td><td style="font-size:12px">${entries.length} referencias</td><td>${total.toLocaleString('es-ES')}</td></tr>`;
+  html += `<tr class="total-row">
+    <td>TOTAL</td>
+    <td style="font-size:12px">${entries.length} referencias</td>
+    <td>${total.toLocaleString('es-ES')}</td>
+    <td style="display:${showDayCol?'':'none'};color:var(--blue)">${totalDia.toLocaleString('es-ES')}</td>
+  </tr>`;
   tbody.innerHTML = html;
 }
 
 // ── RESUMEN POR GAMA ──────────────────────────────────────────────────────────
 function renderGammaSummary() {
   const tbody = document.getElementById('tbodyGamma');
-  const GAMMA_ORDER = ['Basic', 'Cadena', 'Base'];
-  const gammas = { Basic:{campana:0,fuera:0}, Cadena:{campana:0,fuera:0}, Base:{campana:0,fuera:0} };
+  const showDayCol = hasSales && selectedDate !== 'all';
 
-  // Ventas en campaña por gama (normalizada)
+  document.getElementById('th-gammaDia').style.display = showDayCol ? '' : 'none';
+  document.getElementById('th-gammaDia').textContent = `Vendidas (${selectedDate})`;
+
+  const GAMMA_ORDER = ['Basic', 'Cadena', 'Base'];
+  const gammas = { Basic:{campana:0,dia:0,fuera:0}, Cadena:{campana:0,dia:0,fuera:0}, Base:{campana:0,dia:0,fuera:0} };
+
+  // Ventas en campaña por gama (normalizada) — acumulado global
   CAMPAIGN.forEach(r => {
     const g = normalizeGamma(r.nombre.linea, r.codigo);
     gammas[g].campana += (salesData[r.codigo] || 0);
+    gammas[g].dia += (salesDataDay[r.codigo] || 0); // solo el día seleccionado
   });
 
-  // Ventas fuera de campaña por gama (normalizada)
+  // Ventas fuera de campaña por gama (normalizada) — acumulado global
   Object.entries(outOfCampaign).forEach(([cod, data]) => {
     const g = normalizeGamma(data.name || '', cod);
     gammas[g].fuera += data.units;
+  });
+  // Fuera de campaña, del día seleccionado, se suma aparte para no mezclar con "fuera de campaña global"
+  Object.entries(outOfCampaignDay).forEach(([cod, data]) => {
+    const g = normalizeGamma(data.name || '', cod);
+    gammas[g].dia += data.units;
   });
 
   const rows = GAMMA_ORDER
     .map(g => ({g, ...gammas[g], total: gammas[g].campana + gammas[g].fuera}));
 
   if (!hasSales) {
-    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--text-dim);padding:24px;font-family:'DM Sans',sans-serif">Carga el archivo de ventas para ver el resumen por gama</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="${showDayCol?5:4}" style="text-align:center;color:var(--text-dim);padding:24px;font-family:'DM Sans',sans-serif">Carga el archivo de ventas para ver el resumen por gama</td></tr>`;
     return;
   }
 
   let html = '';
-  let tC=0, tF=0, tT=0;
+  let tC=0, tDia=0, tF=0, tT=0;
   rows.forEach(r => {
-    tC+=r.campana; tF+=r.fuera; tT+=r.total;
+    tC+=r.campana; tDia+=r.dia; tF+=r.fuera; tT+=r.total;
     html += `<tr>
       <td style="text-align:left;font-weight:600;font-family:'DM Sans',sans-serif">${r.g}</td>
       <td>${r.campana.toLocaleString('es-ES')}</td>
+      <td style="display:${showDayCol?'':'none'};color:var(--blue);font-weight:600">${r.dia.toLocaleString('es-ES')}</td>
       <td style="color:var(--yellow)">${r.fuera.toLocaleString('es-ES')}</td>
       <td style="color:var(--green);font-weight:700">${r.total.toLocaleString('es-ES')}</td>
     </tr>`;
   });
-  html += `<tr class="total-row"><td>TOTAL</td><td>${tC.toLocaleString('es-ES')}</td><td>${tF.toLocaleString('es-ES')}</td><td>${tT.toLocaleString('es-ES')}</td></tr>`;
+  html += `<tr class="total-row">
+    <td>TOTAL</td>
+    <td>${tC.toLocaleString('es-ES')}</td>
+    <td style="display:${showDayCol?'':'none'};color:var(--blue)">${tDia.toLocaleString('es-ES')}</td>
+    <td>${tF.toLocaleString('es-ES')}</td>
+    <td>${tT.toLocaleString('es-ES')}</td>
+  </tr>`;
   tbody.innerHTML = html;
 }
 
@@ -641,7 +816,8 @@ function exportPNG() {
   const tw=ctx.measureText('PcCom Sobremesa · ').width;
   ctx.fillStyle=C.accent; ctx.fillText('PcDays 2026',68+tw,38);
   ctx.fillStyle=C.dim; ctx.font='12px sans-serif';
-  ctx.fillText('Informe de ventas · Campaña 28 Jun – 12 Jul 2026 · Ordenado por % vendido',68,56);
+  const dateFilterLabel = selectedDate === 'all' ? 'Campaña completa 28 Jun – 12 Jul 2026' : 'Fecha: ' + selectedDate;
+  ctx.fillText('Informe de ventas · ' + dateFilterLabel + ' · Ordenado por % vendido',68,56);
 
   // KPI boxes
   const now = new Date();
@@ -852,13 +1028,38 @@ async function doSendTeams() {
     return `   ${i+1}. ${r.nombre.linea}\n       ${r.nombre.specs}\n       ${bar} ${(r.pct*100).toFixed(1)}% · ${r.vendidas} de ${r.uds} uds`;
   }).join('\n\n');
 
+  const dateFilterLabel = selectedDate === 'all' ? 'Campaña completa' : selectedDate;
+
+  // Resumen por gama
+  const GAMMA_ORDER = ['Basic', 'Cadena', 'Base'];
+  const gammas = { Basic:{campana:0,fuera:0}, Cadena:{campana:0,fuera:0}, Base:{campana:0,fuera:0} };
+  CAMPAIGN.forEach(r => {
+    const g = normalizeGamma(r.nombre.linea, r.codigo);
+    gammas[g].campana += (salesData[r.codigo] || 0);
+  });
+  Object.entries(outOfCampaign).forEach(([cod, data]) => {
+    const g = normalizeGamma(data.name || '', cod);
+    gammas[g].fuera += data.units;
+  });
+  const gammaTxt = GAMMA_ORDER.map(g => {
+    const v = gammas[g];
+    return `   ${g.padEnd(8,' ')} → Campaña: ${v.campana.toLocaleString('es-ES')} uds · Fuera: ${v.fuera.toLocaleString('es-ES')} uds · Total: ${(v.campana+v.fuera).toLocaleString('es-ES')} uds`;
+  }).join('\n');
+
   const mensaje =
 `📦 PcDays 2026 · Informe de ventas
+📅  ${dateFilterLabel}
 ${linea}
 
 ✅  Vendidas:          ${totV.toLocaleString('es-ES')} uds  (${pct}%)
 📦  Ofertadas:         ${totOf.toLocaleString('es-ES')} uds
 🟡  Ofertas restantes: ${totR.toLocaleString('es-ES')} uds
+
+${linea}
+📊  Resumen por gama
+${linea}
+
+${gammaTxt}
 
 ${linea}
 📊  Ranking completo por % vendido
@@ -867,7 +1068,7 @@ ${linea}
 ${top5txt}
 
 ${linea}
-📅  ${dateStr}`;
+🕐  Generado: ${dateStr}`;
 
   const body = { mensaje };
 
