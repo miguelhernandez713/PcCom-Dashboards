@@ -211,6 +211,41 @@
     </table>
   </div>
 
+  <!-- Resumen por gama -->
+  <div class="table-controls" style="margin-top:8px">
+    <div class="section-title">📊 Resumen de ventas por gama</div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th style="text-align:left">Gama</th>
+          <th>Vendidas en campaña</th>
+          <th>Vendidas fuera de campaña</th>
+          <th>Total vendidas</th>
+        </tr>
+      </thead>
+      <tbody id="tbodyGamma"></tbody>
+    </table>
+  </div>
+
+  <!-- Fuera de campaña -->
+  <div class="table-controls" style="margin-top:8px">
+    <div class="section-title">📋 PcCom Sobremesa vendidos fuera de campaña</div>
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th style="text-align:left">Código</th>
+          <th style="text-align:left">Artículo</th>
+          <th>Vendidas</th>
+        </tr>
+      </thead>
+      <tbody id="tbodyOOC"></tbody>
+    </table>
+  </div>
+
 </div>
 
 <script>
@@ -261,6 +296,7 @@ const TOTAL_OF = CAMPAIGN.reduce((s,r)=>s+r.uds, 0); // 4165
 
 // ── STATE ─────────────────────────────────────────────────────────────────────
 let salesData = {};
+let outOfCampaign = {};
 let hasSales  = false;
 let filter    = 'all';
 let sortCol   = 'fi';
@@ -312,20 +348,33 @@ function splitLine(line, delim) {
 
 function parseSales(rows, fname) {
   salesData = {};
+  outOfCampaign = {}; // codigo -> {units, name}
   if (!rows.length) return;
   const keys = Object.keys(rows[0]);
   const codKey = keys.find(k=>k==='product_id')||keys.find(k=>k==='product_reference')||keys.find(k=>/codigo|articulo|sku/i.test(k));
   const udsKey = keys.find(k=>k==='units')||keys.find(k=>/vendid|pedid|uds|qty|cantidad/i.test(k));
+  const nameKey = keys.find(k=>k==='name');
+  const brandKey = keys.find(k=>k==='own_brand');
+  const famKey = keys.find(k=>k==='family');
   if (!codKey||!udsKey) { alert('Columnas no reconocidas.\nEncontradas: '+keys.slice(0,10).join(', ')); return; }
 
   let totalFilasCampana = 0;
   for (const row of rows) {
     const cod = String(row[codKey]||'').trim();
     const qty = parseInt(row[udsKey])||0;
-    // SOLO sumamos si el código pertenece a la campaña
-    if (cod && CAMPAIGN_CODES.has(cod)) {
+    if (!cod) continue;
+    if (CAMPAIGN_CODES.has(cod)) {
       salesData[cod] = (salesData[cod]||0) + qty;
       totalFilasCampana++;
+    } else {
+      // Capturamos ventas PcCom Sobremesa que NO están en campaña
+      const isOwnBrand = brandKey ? (String(row[brandKey]).toLowerCase()==='true') : true;
+      const isSobremesa = famKey ? /sobremesa/i.test(String(row[famKey])) : true;
+      if (isOwnBrand && isSobremesa) {
+        const name = nameKey ? String(row[nameKey]||'').trim() : '';
+        if (!outOfCampaign[cod]) outOfCampaign[cod] = {units:0, name};
+        outOfCampaign[cod].units += qty;
+      }
     }
   }
 
@@ -338,17 +387,17 @@ function parseSales(rows, fname) {
   document.getElementById('btnClear').style.display='inline-block';
   document.getElementById('btnExport').disabled = false;
 
-  updateKPIs(); render();
+  updateKPIs(); render(); renderOutOfCampaign(); renderGammaSummary();
 }
 
 function clearSales() {
-  salesData={}; hasSales=false;
+  salesData={}; outOfCampaign={}; hasSales=false;
   drop.style.display='';
   document.getElementById('loadedLabel').style.display='none';
   document.getElementById('btnClear').style.display='none';
   document.getElementById('btnExport').disabled = true;
   document.getElementById('fileInput').value='';
-  updateKPIs(); render();
+  updateKPIs(); render(); renderOutOfCampaign(); renderGammaSummary();
 }
 
 // ── KPIs ──────────────────────────────────────────────────────────────────────
@@ -433,6 +482,90 @@ function render() {
   document.getElementById('tbody').innerHTML = html;
 }
 
+// Extrae la gama (PcCom Work/Lite/Ready/Imperial/Ultimate/Studio/iCUE...) de un nombre completo
+function extractGamma(name) {
+  const m = name.match(/PcCom\s+(\w+)/i);
+  return m ? 'PcCom ' + m[1] : 'PcCom (otros)';
+}
+
+// Agrupa las gamas en 3 macro-categorías: Basic (Work/Lite), Cadena (Ready y variantes), Base (resto)
+// EXCEPCIÓN FIJA: estos IDs se clasifican siempre como "Cadena" aunque su nombre no contenga "Ready"
+const CADENA_EXCEPTION_IDS = new Set([
+  '11011263','11011276','11027737','11027738','11057839','11057846',
+  '11097787','11097788','11118098','11118120','11088238'
+]);
+
+function normalizeGamma(name, codigo) {
+  if (codigo && CADENA_EXCEPTION_IDS.has(String(codigo))) return 'Cadena';
+  const n = (name || '').toLowerCase();
+  if (/\bwork\b/.test(n) || /\blite\b/.test(n)) return 'Basic';
+  if (/\bready\b/.test(n)) return 'Cadena';
+  return 'Base';
+}
+
+// ── FUERA DE CAMPAÑA ──────────────────────────────────────────────────────────
+function renderOutOfCampaign() {
+  const tbody = document.getElementById('tbodyOOC');
+  const entries = Object.entries(outOfCampaign).sort((a,b) => b[1].units - a[1].units);
+  if (!entries.length) {
+    tbody.innerHTML = `<tr><td colspan="3" style="text-align:center;color:var(--text-dim);padding:24px;font-family:'DM Sans',sans-serif">${hasSales ? 'No se han detectado ventas PcCom Sobremesa fuera de campaña' : 'Carga el archivo de ventas para ver este detalle'}</td></tr>`;
+    return;
+  }
+  let html = '';
+  let total = 0;
+  entries.forEach(([cod, data]) => {
+    total += data.units;
+    html += `<tr>
+      <td style="text-align:left">${cod}</td>
+      <td style="text-align:left;font-family:'DM Sans',sans-serif;font-size:12px">${data.name || '—'}</td>
+      <td style="color:var(--yellow);font-weight:600">${data.units.toLocaleString('es-ES')}</td>
+    </tr>`;
+  });
+  html += `<tr class="total-row"><td>TOTAL</td><td style="font-size:12px">${entries.length} referencias</td><td>${total.toLocaleString('es-ES')}</td></tr>`;
+  tbody.innerHTML = html;
+}
+
+// ── RESUMEN POR GAMA ──────────────────────────────────────────────────────────
+function renderGammaSummary() {
+  const tbody = document.getElementById('tbodyGamma');
+  const GAMMA_ORDER = ['Basic', 'Cadena', 'Base'];
+  const gammas = { Basic:{campana:0,fuera:0}, Cadena:{campana:0,fuera:0}, Base:{campana:0,fuera:0} };
+
+  // Ventas en campaña por gama (normalizada)
+  CAMPAIGN.forEach(r => {
+    const g = normalizeGamma(r.nombre.linea, r.codigo);
+    gammas[g].campana += (salesData[r.codigo] || 0);
+  });
+
+  // Ventas fuera de campaña por gama (normalizada)
+  Object.entries(outOfCampaign).forEach(([cod, data]) => {
+    const g = normalizeGamma(data.name || '', cod);
+    gammas[g].fuera += data.units;
+  });
+
+  const rows = GAMMA_ORDER
+    .map(g => ({g, ...gammas[g], total: gammas[g].campana + gammas[g].fuera}));
+
+  if (!hasSales) {
+    tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--text-dim);padding:24px;font-family:'DM Sans',sans-serif">Carga el archivo de ventas para ver el resumen por gama</td></tr>`;
+    return;
+  }
+
+  let html = '';
+  let tC=0, tF=0, tT=0;
+  rows.forEach(r => {
+    tC+=r.campana; tF+=r.fuera; tT+=r.total;
+    html += `<tr>
+      <td style="text-align:left;font-weight:600;font-family:'DM Sans',sans-serif">${r.g}</td>
+      <td>${r.campana.toLocaleString('es-ES')}</td>
+      <td style="color:var(--yellow)">${r.fuera.toLocaleString('es-ES')}</td>
+      <td style="color:var(--green);font-weight:700">${r.total.toLocaleString('es-ES')}</td>
+    </tr>`;
+  });
+  html += `<tr class="total-row"><td>TOTAL</td><td>${tC.toLocaleString('es-ES')}</td><td>${tF.toLocaleString('es-ES')}</td><td>${tT.toLocaleString('es-ES')}</td></tr>`;
+  tbody.innerHTML = html;
+}
+
 // ── EXPORT PNG ────────────────────────────────────────────────────────────────
 function exportPNG() {
   const rows = CAMPAIGN.map(r => {
@@ -447,11 +580,29 @@ function exportPNG() {
   const totR   = totOf - totV;
   const totPct = (totV/totOf*100).toFixed(1);
 
+  // Resumen por gama (Basic/Cadena/Base)
+  const GAMMA_ORDER = ['Basic', 'Cadena', 'Base'];
+  const gammas = { Basic:{campana:0,fuera:0}, Cadena:{campana:0,fuera:0}, Base:{campana:0,fuera:0} };
+  CAMPAIGN.forEach(r => {
+    const g = normalizeGamma(r.nombre.linea, r.codigo);
+    gammas[g].campana += (salesData[r.codigo] || 0);
+  });
+  Object.entries(outOfCampaign).forEach(([cod, data]) => {
+    const g = normalizeGamma(data.name || '', cod);
+    gammas[g].fuera += data.units;
+  });
+  const gammaRows = GAMMA_ORDER.map(g => ({g, ...gammas[g], total: gammas[g].campana + gammas[g].fuera}));
+
+  const GAMMA_ROW_H = 28;
+  const GAMMA_HDR_H = 30;
+  const GAMMA_TITLE_H = 34;
+  const GAMMA_SECTION_H = GAMMA_TITLE_H + GAMMA_HDR_H + GAMMA_ROW_H * (gammaRows.length + 1) + 16;
+
   const W       = 1100;
   const ROW_H   = 34;
   const HEAD_H  = 110;
   const FOOT_H  = 50;
-  const H       = HEAD_H + ROW_H * (rows.length + 1) + FOOT_H;
+  const H       = HEAD_H + ROW_H * (rows.length + 1) + GAMMA_SECTION_H + FOOT_H;
 
   const canvas  = document.createElement('canvas');
   canvas.width  = W * 2;
@@ -602,8 +753,61 @@ function exportPNG() {
   ctx.fillStyle=C.accent; ctx.font='bold 12px monospace'; ctx.textAlign='right';
   ctx.fillText(totPct+'%',pc.x+pc.w-14,totY+22);
 
+  // ── RESUMEN POR GAMA ──────────────────────────────────────────────────────
+  let gy = totY + ROW_H + 16;
+  ctx.fillStyle=C.text; ctx.font='bold 14px sans-serif'; ctx.textAlign='left';
+  ctx.fillText('📊 Resumen de ventas por gama', 18, gy + 20);
+  gy += GAMMA_TITLE_H;
+
+  const gCols = [
+    {l:'GAMA',                       w:200, a:'left'},
+    {l:'VENDIDAS EN CAMPAÑA',        w:230, a:'right'},
+    {l:'VENDIDAS FUERA DE CAMPAÑA',  w:260, a:'right'},
+    {l:'TOTAL VENDIDAS',             w:200, a:'right'},
+  ];
+  let gcx=18; gCols.forEach(c=>{c.x=gcx;gcx+=c.w;});
+
+  ctx.fillStyle=C.surface2; ctx.fillRect(0,gy,W,GAMMA_HDR_H);
+  ctx.fillStyle=C.border;   ctx.fillRect(0,gy+GAMMA_HDR_H-1,W,1);
+  gCols.forEach(c=>{
+    ctx.fillStyle=C.dim; ctx.font='bold 10px sans-serif';
+    ctx.textAlign=c.a;
+    ctx.fillText(c.l, c.a==='right'?c.x+c.w-14:c.x, gy+20);
+  });
+  gy += GAMMA_HDR_H;
+
+  let gtC=0, gtF=0, gtT=0;
+  gammaRows.forEach((r,idx)=>{
+    const ry=gy+idx*GAMMA_ROW_H;
+    if(idx%2===0){ctx.fillStyle=C.surface;ctx.fillRect(0,ry,W,GAMMA_ROW_H);}
+    ctx.fillStyle=C.border; ctx.fillRect(0,ry+GAMMA_ROW_H-1,W,1);
+    gtC+=r.campana; gtF+=r.fuera; gtT+=r.total;
+    const cy=ry+19;
+    ctx.fillStyle=C.text; ctx.font='bold 12px sans-serif'; ctx.textAlign='left';
+    ctx.fillText(r.g, gCols[0].x, cy);
+    ctx.fillStyle=C.text; ctx.font='11px monospace'; ctx.textAlign='right';
+    ctx.fillText(r.campana.toLocaleString('es-ES'), gCols[1].x+gCols[1].w-14, cy);
+    ctx.fillStyle=C.yellow; ctx.font='11px monospace';
+    ctx.fillText(r.fuera.toLocaleString('es-ES'), gCols[2].x+gCols[2].w-14, cy);
+    ctx.fillStyle=C.green; ctx.font='bold 12px monospace';
+    ctx.fillText(r.total.toLocaleString('es-ES'), gCols[3].x+gCols[3].w-14, cy);
+  });
+  gy += GAMMA_ROW_H * gammaRows.length;
+
+  ctx.fillStyle=C.surface2; ctx.fillRect(0,gy,W,GAMMA_ROW_H);
+  ctx.fillStyle=C.border;   ctx.fillRect(0,gy,W,2);
+  ctx.fillStyle=C.text; ctx.font='bold 12px sans-serif'; ctx.textAlign='left';
+  ctx.fillText('TOTAL', gCols[0].x, gy+19);
+  ctx.fillStyle=C.text; ctx.font='bold 11px monospace'; ctx.textAlign='right';
+  ctx.fillText(gtC.toLocaleString('es-ES'), gCols[1].x+gCols[1].w-14, gy+19);
+  ctx.fillStyle=C.yellow; ctx.font='bold 11px monospace';
+  ctx.fillText(gtF.toLocaleString('es-ES'), gCols[2].x+gCols[2].w-14, gy+19);
+  ctx.fillStyle=C.green; ctx.font='bold 12px monospace';
+  ctx.fillText(gtT.toLocaleString('es-ES'), gCols[3].x+gCols[3].w-14, gy+19);
+  gy += GAMMA_ROW_H;
+
   // Footer
-  const fy=totY+ROW_H;
+  const fy=gy;
   ctx.fillStyle=C.surface; ctx.fillRect(0,fy,W,FOOT_H);
   ctx.fillStyle=C.border;  ctx.fillRect(0,fy,W,1);
   ctx.fillStyle=C.dim; ctx.font='11px sans-serif'; ctx.textAlign='left';
@@ -639,17 +843,33 @@ async function doSendTeams() {
   const now   = new Date();
   const dateStr = now.toLocaleDateString('es-ES',{day:'2-digit',month:'2-digit',year:'numeric'})+' '+now.toLocaleTimeString('es-ES',{hour:'2-digit',minute:'2-digit'});
 
-  // Top 5 por % vendido
   const top5 = CAMPAIGN.map(r=>({...r, vendidas:salesData[r.codigo]||0, pct:r.uds>0?(salesData[r.codigo]||0)/r.uds:0}))
-    .sort((a,b)=>b.pct-a.pct).slice(0,5);
-  const top5txt = top5.map((r,i)=>`${i+1}. ${r.nombre.linea} ${r.nombre.specs} — ${(r.pct*100).toFixed(1)}% (${r.vendidas}/${r.uds})`).join('\n');
+    .sort((a,b)=>b.pct-a.pct);
 
-  const body = {
-    titulo: '📦 PcDays 2026 · Informe de ventas',
-    fecha: dateStr,
-    resumen: `✅ Vendidas: ${totV.toLocaleString('es-ES')} uds (${pct}%)\n📦 Ofertadas: ${totOf.toLocaleString('es-ES')} uds\n🟡 Ofertas restantes: ${totR.toLocaleString('es-ES')} uds`,
-    top5: `🏆 Top 5 referencias por % vendido:\n${top5txt}`
-  };
+  const linea = '─────────────────────────────';
+  const top5txt = top5.map((r,i)=>{
+    const bar = '█'.repeat(Math.round(r.pct*10)) + '░'.repeat(10-Math.round(r.pct*10));
+    return `   ${i+1}. ${r.nombre.linea}\n       ${r.nombre.specs}\n       ${bar} ${(r.pct*100).toFixed(1)}% · ${r.vendidas} de ${r.uds} uds`;
+  }).join('\n\n');
+
+  const mensaje =
+`📦 PcDays 2026 · Informe de ventas
+${linea}
+
+✅  Vendidas:          ${totV.toLocaleString('es-ES')} uds  (${pct}%)
+📦  Ofertadas:         ${totOf.toLocaleString('es-ES')} uds
+🟡  Ofertas restantes: ${totR.toLocaleString('es-ES')} uds
+
+${linea}
+📊  Ranking completo por % vendido
+${linea}
+
+${top5txt}
+
+${linea}
+📅  ${dateStr}`;
+
+  const body = { mensaje };
 
   try {
     const res = await fetch(WEBHOOK_URL, {
@@ -670,7 +890,7 @@ async function doSendTeams() {
   }
 }
 
-updateKPIs(); render();
+updateKPIs(); render(); renderOutOfCampaign(); renderGammaSummary();
 </script>
 </body>
 </html>
