@@ -592,7 +592,7 @@ function render() {
     const vDiaTxt=hasSales?(r.vendidasDia>0?`<span style="color:var(--blue);font-weight:600">${r.vendidasDia.toLocaleString('es-ES')}</span>`:'<span class="dim">0</span>'):'<span class="dim">—</span>';
     const rTxt=hasSales?r.restante.toLocaleString('es-ES'):'<span class="dim">—</span>';
     const pTxt=hasSales?pctW+'%':'—';
-    const fechaTxt = `${r.fi}${r.hi==='00:00'?'':' · '+r.hi+'h'}`;
+    const fechaTxt = `${r.fi} · ${r.hi}h`;
 
     html+=`<tr>
       <td>${r.codigo}</td>
