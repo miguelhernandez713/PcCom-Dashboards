@@ -212,6 +212,7 @@
           <th onclick="sortBy('vendidasDia')" id="th-vendidasDia" style="display:none">Vendidas</th>
           <th onclick="sortBy('restante')" id="th-restante">Ofertas rest.</th>
           <th onclick="sortBy('pct')" id="th-pct">% Vendido</th>
+          <th onclick="sortBy('fi')" id="th-fechaInicio">Fecha inicio</th>
         </tr>
       </thead>
       <tbody id="tbody"></tbody>
@@ -233,10 +234,10 @@
       <thead>
         <tr id="theadRowGamma">
           <th style="text-align:left">Gama</th>
-          <th>Vendidas en campaña</th>
-          <th id="th-gammaDia" style="display:none">Vendidas (día)</th>
+          <th style="text-align:right">Vendidas en campaña</th>
           <th>Vendidas fuera de campaña</th>
           <th>Total vendidas</th>
+          <th id="th-gammaDia" style="display:none">Vendidas (día)</th>
         </tr>
       </thead>
       <tbody id="tbodyGamma"></tbody>
@@ -577,15 +578,10 @@ function render() {
     return (va-vb)*sortDir;
   });
 
-  let html='', lastGroup=null, totOf=0, totV=0, totVDia=0;
-  const colspan = showDayCol ? 8 : 7;
+  let html='', totOf=0, totV=0, totVDia=0;
+  const colspan = showDayCol ? 9 : 8;
 
   rows.forEach(r=>{
-    const grp=r.fi+r.hi;
-    if(grp!==lastGroup){
-      html+=`<tr class="group-row"><td colspan="${colspan}">📅 Activas desde el ${r.fi} a las ${r.hi==='00:00'?'00:00':r.hi} h</td></tr>`;
-      lastGroup=grp;
-    }
     totOf+=r.uds; totV+=r.vendidas; totVDia+=r.vendidasDia;
     const pctW=Math.min(r.pct*100,100).toFixed(0);
     let chipCls='chip-ok',chipTxt='✓ Disponible';
@@ -596,6 +592,7 @@ function render() {
     const vDiaTxt=hasSales?(r.vendidasDia>0?`<span style="color:var(--blue);font-weight:600">${r.vendidasDia.toLocaleString('es-ES')}</span>`:'<span class="dim">0</span>'):'<span class="dim">—</span>';
     const rTxt=hasSales?r.restante.toLocaleString('es-ES'):'<span class="dim">—</span>';
     const pTxt=hasSales?pctW+'%':'—';
+    const fechaTxt = `${r.fi}${r.hi==='00:00'?'':' · '+r.hi+'h'}`;
 
     html+=`<tr>
       <td>${r.codigo}</td>
@@ -606,6 +603,7 @@ function render() {
       <td style="display:${showDayCol?'':'none'}">${vDiaTxt}</td>
       <td>${rTxt}</td>
       <td><div class="progress-wrap"><div class="progress-track"><div class="progress-fill" style="width:${hasSales?pctW:0}%;background:${fillColor}"></div></div><span class="pct-text" style="color:${fillColor}">${pTxt}</span></div></td>
+      <td style="font-size:11.5px;color:var(--text-dim);font-family:'DM Sans',sans-serif">${fechaTxt}</td>
     </tr>`;
   });
 
@@ -619,6 +617,7 @@ function render() {
     <td style="display:${showDayCol?'':'none'};color:var(--blue)">${hasSales?totVDia.toLocaleString('es-ES'):'—'}</td>
     <td>${hasSales?totRest.toLocaleString('es-ES'):'—'}</td>
     <td style="text-align:right;color:var(--accent)">${hasSales?(totOf>0?(totV/totOf*100).toFixed(1)+'%':'—'):'—'}</td>
+    <td></td>
   </tr>`;
 
   document.getElementById('tbody').innerHTML = html;
@@ -687,8 +686,9 @@ function renderGammaSummary() {
   const tbody = document.getElementById('tbodyGamma');
   const showDayCol = hasSales && selectedDate !== 'all';
 
-  document.getElementById('th-gammaDia').style.display = showDayCol ? '' : 'none';
-  document.getElementById('th-gammaDia').textContent = `Vendidas (${selectedDate})`;
+  const thDia = document.getElementById('th-gammaDia');
+  thDia.style.display = showDayCol ? '' : 'none';
+  thDia.textContent = `Vendidas (${selectedDate})`;
 
   const GAMMA_ORDER = ['Basic', 'Cadena', 'Base'];
   const gammas = { Basic:{campana:0,dia:0,fuera:0}, Cadena:{campana:0,dia:0,fuera:0}, Base:{campana:0,dia:0,fuera:0} };
@@ -725,18 +725,18 @@ function renderGammaSummary() {
     tC+=r.campana; tDia+=r.dia; tF+=r.fuera; tT+=r.total;
     html += `<tr>
       <td style="text-align:left;font-weight:600;font-family:'DM Sans',sans-serif">${r.g}</td>
-      <td>${r.campana.toLocaleString('es-ES')}</td>
-      <td style="display:${showDayCol?'':'none'};color:var(--blue);font-weight:600">${r.dia.toLocaleString('es-ES')}</td>
+      <td style="text-align:right;font-family:'JetBrains Mono',monospace">${r.campana.toLocaleString('es-ES')}</td>
       <td style="color:var(--yellow)">${r.fuera.toLocaleString('es-ES')}</td>
       <td style="color:var(--green);font-weight:700">${r.total.toLocaleString('es-ES')}</td>
+      <td style="display:${showDayCol?'':'none'};color:var(--blue);font-weight:600">${r.dia.toLocaleString('es-ES')}</td>
     </tr>`;
   });
   html += `<tr class="total-row">
     <td>TOTAL</td>
-    <td>${tC.toLocaleString('es-ES')}</td>
-    <td style="display:${showDayCol?'':'none'};color:var(--blue)">${tDia.toLocaleString('es-ES')}</td>
+    <td style="text-align:right">${tC.toLocaleString('es-ES')}</td>
     <td>${tF.toLocaleString('es-ES')}</td>
     <td>${tT.toLocaleString('es-ES')}</td>
+    <td style="display:${showDayCol?'':'none'};color:var(--blue)">${tDia.toLocaleString('es-ES')}</td>
   </tr>`;
   tbody.innerHTML = html;
 }
